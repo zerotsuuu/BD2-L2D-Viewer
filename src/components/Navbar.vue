@@ -24,9 +24,6 @@
         >
           <BgResetIcon class="w-5 h-5 md:w-7 md:h-7" />
         </button>
-        <button class="cursor-pointer" @click="showChangelog = true" title="Changelog">
-          <ChangelogIcon class="w-5 h-5 md:w-7 md:h-7" />
-        </button>
         <a href="https://github.com/zerotsuuu/BD2-L2D-Viewer" target="_blank" title="Open GitHub repository">
           <GithubIcon class="w-5 h-5 md:w-7 md:h-7" />
         </a>
@@ -78,13 +75,6 @@
           <BgResetIcon class="w-5 h-5 opacity-60" />
           <span>Reset Background</span>
         </button>
-        <button
-          class="flex items-center gap-2"
-          @click="() => { showChangelog = true; closeMobileMenu(); }"
-        >
-          <ChangelogIcon class="w-5 h-5" />
-          <span>Changelog</span>
-        </button>
         <a
           href="https://github.com/zerotsuuu/BD2-L2D-Viewer"
           target="_blank"
@@ -99,7 +89,6 @@
     </div>
 
     <UploadSpineModal v-if="showUploadModal" @close="showUploadModal = false" />
-    <ChangelogModal v-if="showChangelog" @close="showChangelog = false" />
     <UploadBackgroundModal
       v-if="showBackgroundModal"
       :show-reset="hasCustomBackground"
@@ -112,12 +101,10 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import ChangelogModal from '@/components/ChangelogModal.vue'
 import UploadSpineModal from '@/components/UploadSpineModal.vue'
 import UploadBackgroundModal from '@/components/UploadBackgroundModal.vue'
 
 import GithubIcon from '@/components/icons/GithubIcon.vue'
-import ChangelogIcon from '@/components/icons/ChangelogIcon.vue'
 import PlusIcon from '@/components/icons/PlusIcon.vue'
 import MenuIcon from '@/components/icons/MenuIcon.vue'
 import BgUploadIcon from '@/components/icons/BgUploadIcon.vue'
@@ -126,7 +113,6 @@ import BgResetIcon from '@/components/icons/BgResetIcon.vue'
 const props = defineProps<{ hasCustomBackground?: boolean }>()
 const hasCustomBackground = computed(() => !!props.hasCustomBackground)
 
-const showChangelog = ref(false)
 const showUploadModal = ref(false)
 const showBackgroundModal = ref(false)
 const mobileMenuOpen = ref(false)
@@ -185,9 +171,9 @@ const handleBackgroundReset = () => {
 }
 
 watch(
-  [showChangelog, showUploadModal, showBackgroundModal],
+  [showUploadModal, showBackgroundModal],
   () => {
-    const active = showChangelog.value || showUploadModal.value || showBackgroundModal.value
+    const active = showUploadModal.value || showBackgroundModal.value
     emit('overlay-active', active)
   },
   { immediate: true },
