@@ -927,6 +927,13 @@ export default {
     "cutscene": "cutscene_char061002",
     "dating": ""
   },
+  "061092": {
+    "charName": "Helena",
+    "costumeName": "Rising Star",
+    "spine": "char061092",
+    "cutscene": "cutscene_char061092_A",
+    "dating": ""
+  },
   "061101": {
     "charName": "Eleaneer",
     "costumeName": "Piercing Magic Bow",
@@ -1246,6 +1253,13 @@ export default {
     "costumeName": "Queen of Gluttis",
     "spine": "char067702",
     "cutscene": "cutscene_char067702",
+    "dating": ""
+  },
+  "067801": {
+    "charName": "Mamonir",
+    "costumeName": "Night of Death",
+    "spine": "char067801",
+    "cutscene": "cutscene_char067801",
     "dating": ""
   },
   "minigame1": {
