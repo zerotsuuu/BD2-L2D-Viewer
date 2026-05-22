@@ -1262,6 +1262,13 @@ export default {
     "cutscene": "cutscene_char067801",
     "dating": ""
   },
+  "067803": {
+    "charName": "Mamonir",
+    "costumeName": "Miracle Marine",
+    "spine": "char067803",
+    "cutscene": "cutscene_char067803",
+    "dating": ""
+  },
   "minigame1": {
     "charName": "Minigame",
     "costumeName": "Slap Slap Pop",
