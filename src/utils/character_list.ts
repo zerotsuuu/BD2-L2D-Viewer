@@ -677,6 +677,13 @@ export default {
     "cutscene": "cutscene_char003802",
     "dating": ""
   },
+  "003803": {
+    "charName": "Liberta",
+    "costumeName": "Miracle Rose",
+    "spine": "char003803",
+    "cutscene": "cutscene_char003803",
+    "dating": ""
+  },
   "003892": {
     "charName": "Liberta",
     "costumeName": "Hedonist",
@@ -736,6 +743,15 @@ export default {
     "spine": "char004201",
     "cutscene": "cutscene_char004201",
     "dating": ""
+  },
+  "004202": {
+    "charName": "Palette",
+    "costumeName": "Miracle Violet",
+    "spine": "char004202",
+    "cutscene": "cutscene_char004202",
+    "dating": "illust_dating17",
+    "datingHasNoBg": false,
+    "datingUsesTracks": true
   },
   "020001": {
     "charName": "Eris",
@@ -819,6 +835,13 @@ export default {
     "costumeName": "Supreme God Archbishop",
     "spine": "char020901",
     "cutscene": "cutscene_char020901",
+    "dating": ""
+  },
+  "021001": {
+    "charName": "Ikaruga",
+    "costumeName": "Noble Flame",
+    "spine": "char021001",
+    "cutscene": "cutscene_char021001",
     "dating": ""
   },
   "060301": {
