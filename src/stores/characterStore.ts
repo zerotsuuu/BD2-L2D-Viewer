@@ -41,6 +41,8 @@ export const useCharacterStore = defineStore('characterStore', {
     customBackgroundImage: null as string | null,
     layerNames: [] as string[],
     layerVisibility: {} as Record<string, boolean>,
+    layerSelectionEnabled: true as boolean,
     selectedLayer: null as string | null,
+    hiddenLayerStack: [] as string[],
   }),
 })

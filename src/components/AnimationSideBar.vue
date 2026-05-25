@@ -51,23 +51,23 @@
           class="bg-gray-700 text-white rounded px-2 py-1 text-sm"
         />
         <div class="overflow-y-auto sidebar-scroll flex-1 min-h-0">
-          <div v-if="!filteredLayerNames.length" class="text-sm text-gray-400 px-2 py-2">
+          <div v-if="!filteredLayers.length" class="text-sm text-gray-400 px-2 py-2">
             No layers found.
           </div>
           <label
-            v-for="layer in filteredLayerNames"
-            :key="layer"
-            :ref="el => { if (layer === store.selectedLayer) selectedLayerEl = el as HTMLElement | null }"
+            v-for="layer in filteredLayers"
+            :key="layer.key"
+            :ref="el => { if (layer.key === store.selectedLayer) selectedLayerEl = el as HTMLElement | null }"
             class="flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-gray-700"
-            :class="{ 'bg-indigo-600/50 ring-1 ring-indigo-400': layer === store.selectedLayer }"
-            @click.self="store.selectedLayer = layer"
+            :class="{ 'bg-indigo-600/50 ring-1 ring-indigo-400': layer.key === store.selectedLayer }"
+            @click.self="store.selectedLayer = layer.key"
           >
             <input
               type="checkbox"
-              :checked="isLayerVisible(layer)"
-              @change="toggleLayer(layer)"
+              :checked="isLayerVisible(layer.key)"
+              @change="toggleLayer(layer.key)"
             />
-            <span class="truncate" @click.self="store.selectedLayer = layer">{{ layer }}</span>
+            <span class="truncate" :title="layer.key" @click.self="store.selectedLayer = layer.key">{{ layer.label }}</span>
           </label>
         </div>
       </template>
@@ -93,6 +93,23 @@
             class="flex-1"
           />
           <span class="w-12 text-right">{{ store.animationSpeed.toFixed(2) }}x</span>
+        </div>
+      </div>
+      <div class="p-2">
+        <span>Zoom</span>
+        <div class="flex items-center gap-2">
+          <input
+            type="range"
+            min="-1"
+            max="1"
+            step="0.01"
+            v-model.number="zoomAdjustment"
+            @input="onZoomInput"
+            @change="resetZoomAdjustment"
+            @pointerup="resetZoomAdjustment"
+            class="flex-1"
+          />
+          <span class="w-12 text-right">{{ zoomAdjustmentLabel }}</span>
         </div>
       </div>
       <div class="p-2 gap-2 hidden lg:flex">
@@ -219,8 +236,10 @@ const mobileExportRef = ref<HTMLElement | null>(null)
 const sidebarTab = ref<'controls' | 'layers'>('controls')
 const layerFilter = ref('')
 const selectedLayerEl = ref<HTMLElement | null>(null)
+const zoomAdjustment = ref(0)
+let lastZoomAdjustment = 0
 
-const emit = defineEmits(['select', 'reset-camera', 'screenshot', 'export-animation', 'category-change'])
+const emit = defineEmits(['select', 'reset-camera', 'zoom-factor', 'screenshot', 'export-animation', 'category-change'])
 
 function select(name: string) {
   emit('select', name)
@@ -241,6 +260,24 @@ function onExport(format: 'video' | 'frames') {
   showExportMenu.value = false
 }
 
+const zoomAdjustmentLabel = computed(() => {
+  if (Math.abs(zoomAdjustment.value) < 0.005) return '0'
+  return zoomAdjustment.value > 0 ? `+${zoomAdjustment.value.toFixed(2)}` : zoomAdjustment.value.toFixed(2)
+})
+
+function onZoomInput() {
+  const delta = zoomAdjustment.value - lastZoomAdjustment
+  if (Math.abs(delta) < 0.001) return
+  lastZoomAdjustment = zoomAdjustment.value
+  const factor = Math.pow(1.12, -delta * 10)
+  emit('zoom-factor', factor)
+}
+
+function resetZoomAdjustment() {
+  zoomAdjustment.value = 0
+  lastZoomAdjustment = 0
+}
+
 function handleClickOutside(e: MouseEvent) {
   const target = e.target as Node
   if (desktopExportRef.value?.contains(target) || mobileExportRef.value?.contains(target))
@@ -251,12 +288,44 @@ function handleClickOutside(e: MouseEvent) {
 const selectedAnimation = computed(() => store.selectedAnimation)
 const toggleLabel = computed(() => (store.playing ? 'Pause' : 'Play'))
 const currentChar = computed(() => store.characters.find(c => c.id === store.selectedCharacterId))
+const layerSourceSeparator = ' > '
 const layerNames = computed(() => [...store.layerNames].sort((a, b) => a.localeCompare(b)))
-const filteredLayerNames = computed(() => {
-  const query = layerFilter.value.trim().toLowerCase()
-  if (!query) return layerNames.value
-  return layerNames.value.filter(name => name.toLowerCase().includes(query))
+const layerItems = computed(() => {
+  const baseCounts = new Map<string, number>()
+  layerNames.value.forEach(name => {
+    const baseName = getLayerBaseName(name)
+    baseCounts.set(baseName, (baseCounts.get(baseName) ?? 0) + 1)
+  })
+
+  const seenDuplicates = new Map<string, number>()
+  return layerNames.value.map(name => {
+    const baseName = getLayerBaseName(name)
+    const duplicateCount = baseCounts.get(baseName) ?? 0
+    if (duplicateCount <= 1) {
+      return { key: name, label: baseName }
+    }
+
+    const seen = seenDuplicates.get(baseName) ?? 0
+    seenDuplicates.set(baseName, seen + 1)
+    return {
+      key: name,
+      label: seen === 0 ? baseName : `${baseName} (${seen === 1 ? 'extra' : `extra ${seen}`})`,
+    }
+  })
 })
+const filteredLayers = computed(() => {
+  const query = layerFilter.value.trim().toLowerCase()
+  if (!query) return layerItems.value
+  return layerItems.value.filter(layer =>
+    layer.key.toLowerCase().includes(query) || layer.label.toLowerCase().includes(query),
+  )
+})
+
+function getLayerBaseName(name: string) {
+  const separatorIndex = name.indexOf(layerSourceSeparator)
+  if (separatorIndex === -1) return name
+  return name.slice(separatorIndex + layerSourceSeparator.length)
+}
 
 function isLayerVisible(name: string) {
   const value = store.layerVisibility[name]

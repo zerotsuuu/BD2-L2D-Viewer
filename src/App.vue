@@ -15,6 +15,7 @@
           :screenshotting="isScreenshotting"
           @select="onSelectAnimation"
           @reset-camera="onResetCamera"
+          @zoom-factor="onZoomFactor"
           @screenshot="onScreenshot"
           @export-animation="onExportAnimation"
           @category-change="onCategoryChange"
@@ -93,6 +94,7 @@
             :screenshotting="isScreenshotting"
             @select="onSelectAnimation"
             @reset-camera="onResetCamera"
+            @zoom-factor="onZoomFactor"
             @screenshot="onScreenshot"
             @export-animation="onExportAnimation"
           />
@@ -152,6 +154,10 @@ function onSelectAnimation(name: string) {
 
 function onResetCamera() {
   viewerRef.value?.resetCamera()
+}
+
+function onZoomFactor(factor: number) {
+  viewerRef.value?.zoomByFactor(factor)
 }
 
 function onScreenshot(value: boolean) {

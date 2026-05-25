@@ -16,14 +16,36 @@
       >
         <BgEditIcon />
       </button>
-      <button
-        ref="datingToggleRef"
-        v-show="store.characters.find(c => c.id === store.selectedCharacterId)?.datingHasNoBg && store.animationCategory === 'dating'"
-        @click="store.showDatingBg = !store.showDatingBg"
-        class="w-8 h-8 p-1.5 rounded-md hidden lg:flex items-center justify-center bg-gray-800/70 hover:bg-gray-700/70 text-white transition-colors"
-      >
-        <BgToggleIcon :active="store.showDatingBg" />
-      </button>
+      <div class="flex flex-row gap-2">
+        <button
+          ref="datingToggleRef"
+          v-show="store.characters.find(c => c.id === store.selectedCharacterId)?.datingHasNoBg && store.animationCategory === 'dating'"
+          @click="store.showDatingBg = !store.showDatingBg"
+          class="w-8 h-8 p-1.5 rounded-md hidden lg:flex items-center justify-center bg-gray-800/70 hover:bg-gray-700/70 text-white transition-colors"
+        >
+          <BgToggleIcon :active="store.showDatingBg" />
+        </button>
+        <button
+          @click="store.layerSelectionEnabled = !store.layerSelectionEnabled"
+          class="w-8 h-8 p-1.5 rounded-md hidden lg:flex items-center justify-center bg-gray-800/70 hover:bg-gray-700/70 text-white transition-colors"
+        >
+          <LayerSelectIcon :active="store.layerSelectionEnabled" />
+        </button>
+        <button
+          aria-label="Zoom out"
+          @click="zoomOut"
+          class="w-8 h-8 p-1.5 rounded-md hidden lg:flex items-center justify-center bg-gray-800/70 hover:bg-gray-700/70 text-white transition-colors"
+        >
+          <MinusIcon />
+        </button>
+        <button
+          aria-label="Zoom in"
+          @click="zoomIn"
+          class="w-8 h-8 p-1.5 rounded-md hidden lg:flex items-center justify-center bg-gray-800/70 hover:bg-gray-700/70 text-white transition-colors"
+        >
+          <PlusIcon />
+        </button>
+      </div>
     </div>
     <div ref="viewerWrapper" class="relative w-full h-full">
       <div class="absolute inset-0 overflow-hidden" :style="backgroundContainerStyle">
@@ -59,7 +81,14 @@
           @pointerdown.stop.prevent="event => onResizeHandlePointerDown(handle, event as PointerEvent)"
         />
       </div>
-      <div ref="container" class="absolute inset-0 z-10"></div>
+      <div ref="container" class="absolute inset-0 z-10" @pointerdown="onViewerPointerDown"></div>
+      <canvas ref="overlayCanvas" class="absolute inset-0 z-20 pointer-events-none"></canvas>
+    </div>
+    <div
+      v-if="store.selectedLayer"
+      class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-gray-900/80 text-white px-4 py-3 rounded-full z-50 pointer-events-none shadow-lg shadow-black/50 text-sm border border-gray-700 backdrop-blur-sm transition-opacity"
+    >
+      Selected Layer: <span class="font-bold text-indigo-400">{{ store.selectedLayer }}</span>
     </div>
     <input
       type="range"
@@ -83,22 +112,63 @@ import {
   CameraController,
   OrthoCamera,
   GLTexture,
+  AnimationState,
+  AnimationStateData,
+  AssetManager,
+  AtlasAttachmentLoader,
+  Skeleton,
+  SkeletonBinary,
+  TrackEntry,
+  type VertexAttachment,
+  type SkeletonData,
   type Skeleton as SpineSkeleton,
 } from '@esotericsoftware/spine-player'
 import JSZip from 'jszip'
 
-import type { Animation } from '@esotericsoftware/spine-player'
+import type { Animation, SceneRenderer, Slot } from '@esotericsoftware/spine-player'
 import type { SpinePlayerInternal } from '@/types/spine-player-internal'
+import cutsceneComposites, {
+  type CutsceneAnim,
+  type CutsceneComposite,
+  type CutsceneCompositeDefinition,
+  type CutsceneCompositeEntry,
+} from '@/utils/cutscene_mappings'
 
 import BgEditIcon from '@/components/icons/BgEditIcon.vue'
 import BgToggleIcon from '@/components/icons/BgToggleIcon.vue'
+import LayerSelectIcon from '@/components/icons/LayerSelectIcon.vue'
+import MinusIcon from '@/components/icons/MinusIcon.vue'
+import PlusIcon from '@/components/icons/PlusIcon.vue'
 
 type ResizeHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
+type CompositeSegment = {
+  track: number
+  start: number
+  duration: number
+  name: string
+  additive: boolean
+  source: string | null
+  skin?: string
+}
+type ResolvedCutsceneComposite = { name: string; mapping: CutsceneComposite }
+type CompositeOverlayInstance = {
+  trackIndex: number
+  skeleton: SpineSkeleton
+  state: AnimationState
+  segments: CompositeSegment[]
+  source: string | null
+}
+type ExternalSkeletonAsset = {
+  source: string
+  skeletonData: SkeletonData
+  assetManager: AssetManager
+}
 type SpineSlot = {
   data: { name: string; color?: { a: number }; darkColor?: { a: number } }
   color?: { a: number }
   darkColor?: { a: number }
   setAttachment?: (attachment: unknown) => void
+  getAttachment?: () => unknown
   attachment?: unknown
 }
 
@@ -110,6 +180,7 @@ const datingToggleRef = ref<HTMLButtonElement | null>(null)
 const backgroundImageWrapperRef = ref<HTMLDivElement | null>(null)
 const backgroundOverlayRef = ref<HTMLDivElement | null>(null)
 const backgroundImageEl = ref<HTMLImageElement | null>(null)
+const overlayCanvas = ref<HTMLCanvasElement | null>(null)
 
 const progress = ref(0)
 const store = useCharacterStore()
@@ -210,9 +281,53 @@ let manualCamera: OrthoCamera | null = null
 let defaultCameraPos = new Vector2()
 let defaultZoom = 0
 const previousLayerVisibility = new Map<string, boolean>()
+let overlayInstances: CompositeOverlayInstance[] = []
+let overlayRenderHandle: number | null = null
+let overlayLastTimestamp: number | null = null
+let forceTransparentClear = false
+let pausedCompositeRenderPending = false
+let detachCameraListeners: (() => void) | null = null
+let externalSkeletonCache = new Map<string, Promise<ExternalSkeletonAsset>>()
+const MIN_ZOOM_FACTOR = 0.08
+const MAX_ZOOM_FACTOR = 4
+const ZOOM_STEP_FACTOR = 1.2
 
 let offset = new Vector2()
 let size = new Vector2()
+
+const DEFAULT_COMPOSITE_NAME = 'all'
+let compositeActive = false
+let compositeDuration = 0
+let compositeElapsed = 0
+let compositeLastTimestamp: number | null = null
+let compositeSchedule: CompositeSegment[] = []
+let compositeMapping: CutsceneComposite | null = null
+let compositeCharId: string | null = null
+let compositeRestarting = false
+let compositeStartToken = 0
+let exportingAnimation = false
+let compositeLayerNames = new Set<string>()
+
+const glTexturePatchedKey = '__bd2PremultipliedPatchApplied'
+const glTextureOriginalKey = '__bd2PremultipliedPatchOriginal'
+const layerSourceSeparator = ' > '
+type PatchedGLTexturePrototype = typeof GLTexture.prototype & {
+  [glTexturePatchedKey]?: boolean
+  [glTextureOriginalKey]?: (useMipMaps: boolean) => void
+}
+
+function ensureGLTexturePremultiplyPatch() {
+  const proto = GLTexture.prototype as PatchedGLTexturePrototype
+  if (proto[glTexturePatchedKey]) return
+  const originalUpdate = proto.update
+  proto[glTextureOriginalKey] = originalUpdate
+  proto.update = function (useMipMaps: boolean) {
+    const gl = this.context.gl
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+    originalUpdate.call(this, useMipMaps)
+  }
+  proto[glTexturePatchedKey] = true
+}
 
 function getMixIndex(animationName: string): number | null {
   const match = /^mix(\d+)/i.exec(animationName)
@@ -294,6 +409,702 @@ function setSpineAnimation(
     entry.mixDuration = 0
     entry.mixTime = 0
   }
+}
+
+function getTracksEndDuration(state: AnimationState | null | undefined) {
+  if (!state || !state.tracks?.length) return 0
+  let maxEnd = 0
+  const tracks = state.tracks as Array<TrackEntry | null>
+  tracks.forEach(track => {
+    if (!track || !track.animation) return
+    const end = typeof track.trackEnd === 'number' ? track.trackEnd : track.animation.duration || 0
+    if (end > maxEnd) maxEnd = end
+  })
+  return maxEnd
+}
+
+function stopOverlayRendering() {
+  if (overlayRenderHandle !== null) {
+    cancelAnimationFrame(overlayRenderHandle)
+    overlayRenderHandle = null
+  }
+  overlayLastTimestamp = null
+}
+
+function disposeOverlays() {
+  overlayInstances = []
+}
+
+function removeCompositeLayerNames() {
+  if (compositeLayerNames.size === 0) return
+  const namesToRemove = compositeLayerNames
+  store.layerNames = store.layerNames.filter(name => !namesToRemove.has(name))
+  for (const name of namesToRemove) {
+    delete store.layerVisibility[name]
+    previousLayerVisibility.delete(name)
+  }
+  store.hiddenLayerStack = store.hiddenLayerStack.filter(name => !namesToRemove.has(name))
+  if (store.selectedLayer && namesToRemove.has(store.selectedLayer)) {
+    store.selectedLayer = null
+  }
+  compositeLayerNames = new Set()
+}
+
+function clearExternalSkeletonCache() {
+  for (const assetPromise of externalSkeletonCache.values()) {
+    assetPromise
+      .then(asset => asset.assetManager.dispose())
+      .catch(() => {})
+  }
+  externalSkeletonCache = new Map()
+}
+
+function resetComposite() {
+  compositeStartToken++
+  compositeActive = false
+  compositeDuration = 0
+  compositeElapsed = 0
+  compositeLastTimestamp = null
+  compositeSchedule = []
+  compositeMapping = null
+  compositeCharId = null
+  compositeRestarting = false
+  stopOverlayRendering()
+  disposeOverlays()
+  removeCompositeLayerNames()
+}
+
+function isCompositeDefinition(value: unknown): value is CutsceneCompositeDefinition {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    ('composite' in value || 'animations' in value)
+  )
+}
+
+function resolveCompositeDefinition(definition: CutsceneCompositeDefinition): ResolvedCutsceneComposite | null {
+  const mapping = definition.composite ?? definition.animations
+  if (!Array.isArray(mapping)) return null
+  return {
+    name: definition.name || DEFAULT_COMPOSITE_NAME,
+    mapping,
+  }
+}
+
+function normalizeCompositeDefinitions(entry: CutsceneCompositeEntry | undefined): ResolvedCutsceneComposite[] {
+  if (!entry) return []
+  if (Array.isArray(entry)) {
+    if (entry.length > 0 && entry.every(isCompositeDefinition)) {
+      return entry
+        .map(definition => resolveCompositeDefinition(definition))
+        .filter((definition): definition is ResolvedCutsceneComposite => !!definition)
+    }
+    return [{ name: DEFAULT_COMPOSITE_NAME, mapping: entry as CutsceneComposite }]
+  }
+  const resolved = resolveCompositeDefinition(entry)
+  return resolved ? [resolved] : []
+}
+
+function getCompositesForCurrent(): ResolvedCutsceneComposite[] {
+  if (store.animationCategory !== 'ultimate') return []
+  return normalizeCompositeDefinitions(cutsceneComposites[store.selectedCharacterId])
+}
+
+function getCompositeForAnimation(animationName: string | null | undefined): CutsceneComposite | null {
+  if (!animationName) return null
+  return getCompositesForCurrent().find(definition => definition.name === animationName)?.mapping ?? null
+}
+
+function getAnimDuration(state: AnimationState | null | undefined, name: string) {
+  const anim = state?.data.skeletonData.animations.find((animation: Animation) => animation.name === name)
+  return anim?.duration ?? 0
+}
+
+function getSkeletonAnimDuration(skeletonData: SkeletonData | undefined, name: string) {
+  const anim = skeletonData?.animations.find((animation: Animation) => animation.name === name)
+  return anim?.duration ?? 0
+}
+
+function getAnimSpecName(spec: CutsceneAnim) {
+  return typeof spec === 'string' ? spec : spec.name
+}
+
+function getAnimSpecOffset(spec: CutsceneAnim) {
+  return typeof spec === 'string' ? 0 : spec.offset ?? 0
+}
+
+function normalizeCompositeSource(source: string | null | undefined) {
+  if (!source) return null
+  const normalized = source.trim().replace(/\\/g, '/').replace(/\.(skel|atlas|json)$/i, '')
+  return normalized || null
+}
+
+function getAnimSpecSource(spec: CutsceneAnim) {
+  return typeof spec === 'string' ? null : normalizeCompositeSource(spec.source)
+}
+
+function getAnimSpecSkin(spec: CutsceneAnim) {
+  return typeof spec === 'string' ? undefined : spec.skin
+}
+
+function getSpineAssetRoot() {
+  return import.meta.env.DEV ? 'src/assets/spines' : 'assets/spines'
+}
+
+function getScopedLayerName(source: string | null, slotName: string) {
+  return source ? `${source}${layerSourceSeparator}${slotName}` : slotName
+}
+
+function getSlotNameForLayerKey(layerName: string, source: string | null) {
+  if (!source) return layerName.includes(layerSourceSeparator) ? null : layerName
+  const prefix = `${source}${layerSourceSeparator}`
+  return layerName.startsWith(prefix) ? layerName.slice(prefix.length) : null
+}
+
+function registerLayerNames(names: string[], compositeLayer = false) {
+  const existing = new Set(store.layerNames)
+  let changed = false
+  const nextLayerNames = [...store.layerNames]
+  names.forEach(name => {
+    if (!name || existing.has(name)) return
+    existing.add(name)
+    nextLayerNames.push(name)
+    store.layerVisibility[name] = true
+    previousLayerVisibility.set(name, true)
+    if (compositeLayer) compositeLayerNames.add(name)
+    changed = true
+  })
+  if (changed) {
+    store.layerNames = nextLayerNames
+  }
+}
+
+function registerExternalLayerNames(externalAssets: Map<string, ExternalSkeletonAsset>) {
+  externalAssets.forEach(asset => {
+    registerLayerNames(
+      asset.skeletonData.slots.map(slot => getScopedLayerName(asset.source, slot.name)),
+      true,
+    )
+  })
+}
+
+function resolveExternalSkeletonBasePath(source: string) {
+  if (/^(?:https?:)?\/\//.test(source) || source.startsWith('/') || source.startsWith('src/') || source.startsWith('assets/')) {
+    return source
+  }
+  return `${getSpineAssetRoot()}/${store.selectedCharacterId}/${source}`
+}
+
+function collectCompositeSources(mapping: CutsceneComposite) {
+  const sources = new Set<string>()
+  mapping.forEach(segment => {
+    const specs = Array.isArray(segment) ? segment : [segment]
+    specs.forEach(spec => {
+      const source = getAnimSpecSource(spec)
+      if (source) sources.add(source)
+    })
+  })
+  return sources
+}
+
+async function getExternalSkeletonAsset(source: string): Promise<ExternalSkeletonAsset> {
+  const normalized = normalizeCompositeSource(source)
+  if (!normalized) throw new Error('Composite source cannot be empty.')
+  const cached = externalSkeletonCache.get(normalized)
+  if (cached) return cached
+
+  const assetPromise = (async () => {
+    if (!player?.context) throw new Error('Spine player is not ready.')
+    const basePath = resolveExternalSkeletonBasePath(normalized)
+    const binaryUrl = `${basePath}.skel`
+    const atlasUrl = `${basePath}.atlas`
+    const assetManager = new AssetManager(player.context, '')
+    assetManager.loadBinary(binaryUrl)
+    assetManager.loadTextureAtlas(atlasUrl)
+    await assetManager.loadAll()
+
+    const atlas = assetManager.require(atlasUrl)
+    const binaryData = assetManager.require(binaryUrl)
+    const binary = new SkeletonBinary(new AtlasAttachmentLoader(atlas))
+    const skeletonData = binary.readSkeletonData(binaryData)
+    return { source: normalized, skeletonData, assetManager }
+  })()
+
+  externalSkeletonCache.set(normalized, assetPromise)
+  return assetPromise
+}
+
+async function loadCompositeExternalAssets(mapping: CutsceneComposite) {
+  const assets = new Map<string, ExternalSkeletonAsset>()
+  await Promise.all(
+    Array.from(collectCompositeSources(mapping)).map(async source => {
+      assets.set(source, await getExternalSkeletonAsset(source))
+    }),
+  )
+  return assets
+}
+
+function getCompositeSegmentDuration(
+  state: AnimationState | null | undefined,
+  externalAssets: Map<string, ExternalSkeletonAsset>,
+  name: string,
+  source: string | null,
+) {
+  if (!source) return getAnimDuration(state, name)
+  return getSkeletonAnimDuration(externalAssets.get(source)?.skeletonData, name)
+}
+
+function buildCompositeSchedule(
+  mapping: CutsceneComposite,
+  state: AnimationState | null | undefined,
+  externalAssets = new Map<string, ExternalSkeletonAsset>(),
+) {
+  const schedule: CompositeSegment[] = []
+  let phaseStart = 0
+
+  for (const segment of mapping) {
+    if (Array.isArray(segment)) {
+      let longest = 0
+      segment.forEach((animSpec, index) => {
+        const name = getAnimSpecName(animSpec)
+        const offsetValue = getAnimSpecOffset(animSpec)
+        const source = getAnimSpecSource(animSpec)
+        const skin = getAnimSpecSkin(animSpec)
+        const duration = getCompositeSegmentDuration(state, externalAssets, name, source)
+        const start = phaseStart + offsetValue
+        schedule.push({ track: index, start, duration, name, additive: true, source, skin })
+        if (duration + offsetValue > longest) longest = duration + offsetValue
+      })
+      phaseStart += longest
+    } else {
+      const name = getAnimSpecName(segment)
+      const offsetValue = getAnimSpecOffset(segment)
+      const source = getAnimSpecSource(segment)
+      const skin = getAnimSpecSkin(segment)
+      const duration = getCompositeSegmentDuration(state, externalAssets, name, source)
+      const start = phaseStart + offsetValue
+      schedule.push({ track: 0, start, duration, name, additive: false, source, skin })
+      phaseStart += Math.max(duration + offsetValue, 0)
+    }
+  }
+
+  const duration = schedule.reduce((max, seg) => Math.max(max, seg.start + seg.duration), 0)
+  return { schedule, duration }
+}
+
+async function scheduleCompositeTimeline(p: SpinePlayer, mapping: CutsceneComposite, seekToSeconds = 0) {
+  const state = p.animationState
+  const skeleton = p.skeleton
+  if (!state || !skeleton) return { schedule: [], duration: 0, time: 0, externalAssets: new Map<string, ExternalSkeletonAsset>() }
+
+  const externalAssets = await loadCompositeExternalAssets(mapping)
+  const { schedule, duration } = buildCompositeSchedule(mapping, state, externalAssets)
+  const time = duration > 0 ? ((seekToSeconds % duration) + duration) % duration : 0
+
+  return { schedule, duration, time, externalAssets }
+}
+
+function applySegmentsToState(
+  state: AnimationState,
+  skeleton: SpineSkeleton,
+  segments: CompositeSegment[],
+  time: number,
+  hideWhenOutOfRange = false,
+) {
+  state.clearTracks()
+  skeleton.setToSetupPose()
+  skeleton.setSlotsToSetupPose()
+  skeleton.updateWorldTransform()
+  if (!segments.length) return
+
+  segments.sort((a, b) => a.start - b.start)
+  const first = segments[0]
+  const last = segments[segments.length - 1]
+  const end = last.start + last.duration
+  const EPS = 1e-4
+  if (hideWhenOutOfRange && (time < first.start - EPS || time > end + EPS)) {
+    return
+  }
+
+  let currentIndex = segments.findIndex(segment => segment.start + segment.duration > time)
+  if (currentIndex === -1) currentIndex = segments.length - 1
+  const current = segments[currentIndex]
+  if (hideWhenOutOfRange && time < current.start - EPS) {
+    return
+  }
+  const currentTime = Math.max(0, Math.min(current.duration, time - current.start))
+  const entry = state.setAnimation(0, current.name, false)
+  if (entry) {
+    entry.mixDuration = 0
+    entry.mixTime = 0
+    entry.trackTime = currentTime
+    entry.trackLast = currentTime
+    entry.nextTrackLast = currentTime
+  }
+
+  let prevEnd = current.start + current.duration
+  for (let i = currentIndex + 1; i < segments.length; i++) {
+    const segment = segments[i]
+    const delay = Math.max(0, segment.start - prevEnd)
+    const nextEntry = state.addAnimation(0, segment.name, false, delay)
+    if (nextEntry) {
+      nextEntry.mixDuration = 0
+      nextEntry.mixTime = 0
+    }
+    prevEnd = segment.start + segment.duration
+  }
+
+  state.apply(skeleton)
+  skeleton.updateWorldTransform()
+}
+
+function overlayActiveAt(segments: CompositeSegment[], time: number): boolean {
+  const EPS = 1e-4
+  const first = segments[0]
+  const last = segments[segments.length - 1]
+  return !(time < first.start - EPS || time > last.start + last.duration + EPS)
+}
+
+function createOverlayInstance(
+  trackIndex: number,
+  segments: CompositeSegment[],
+  baseSkeleton: SpineSkeleton,
+  baseState: AnimationState,
+  time: number,
+  source: string | null,
+  externalAsset?: ExternalSkeletonAsset,
+) {
+  const skeletonData = externalAsset?.skeletonData ?? baseSkeleton.data
+  const skeleton = new Skeleton(skeletonData)
+  skeleton.scaleX = baseSkeleton.scaleX
+  skeleton.scaleY = baseSkeleton.scaleY
+  skeleton.x = baseSkeleton.x
+  skeleton.y = baseSkeleton.y
+  const skinName = segments.find(segment => segment.skin)?.skin
+  if (skinName) {
+    skeleton.setSkinByName(skinName)
+    skeleton.setSlotsToSetupPose()
+  } else if (!externalAsset && baseSkeleton.skin) {
+    skeleton.setSkin(baseSkeleton.skin)
+    skeleton.setSlotsToSetupPose()
+  }
+  const stateData = new AnimationStateData(externalAsset?.skeletonData ?? baseState.data.skeletonData)
+  const state = new AnimationState(stateData)
+  applySegmentsToState(state, skeleton, segments, time, true)
+  return { trackIndex, skeleton, state, segments, source }
+}
+
+function clearRendererBackground(renderer: SceneRenderer) {
+  const gl = renderer.context?.gl as WebGLRenderingContext | WebGL2RenderingContext | undefined
+  if (!gl) return
+  const hex = normalizedBackgroundColor.value
+  const r = parseInt(hex.slice(1, 3), 16) / 255
+  const g = parseInt(hex.slice(3, 5), 16) / 255
+  const b = parseInt(hex.slice(5, 7), 16) / 255
+  const transparentBg = forceTransparentClear || hasBackgroundImage.value
+  gl.clearColor(r, g, b, transparentBg ? 0 : 1)
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
+}
+
+function compositeTracksActive(p: SpinePlayer | null): boolean {
+  const tracks = p?.animationState?.tracks as Array<{ animation?: Animation } | null> | undefined
+  return !!tracks?.some(track => track && track.animation)
+}
+
+function compositeTracksFinished(p: SpinePlayer | null): boolean {
+  if (compositeSchedule.some(segment => segment.source)) {
+    return compositeDuration > 0 && compositeElapsed >= compositeDuration - 1e-3
+  }
+  const tracks = p?.animationState?.tracks as Array<TrackEntry | null> | undefined
+  if (!tracks || !tracks.length) return true
+  const EPS = 1e-3
+  return tracks.every(track => {
+    if (!track || !track.animation) return true
+    const duration = track.animation.duration || 0
+    const trackTime = track.trackTime || 0
+    const end = typeof track.trackEnd === 'number' ? track.trackEnd : duration
+    const targetEnd = end || duration
+    return targetEnd > 0 ? trackTime >= targetEnd - EPS : true
+  })
+}
+
+function compositeTracksReachedAnimEnd(p: SpinePlayer | null): boolean {
+  if (compositeSchedule.some(segment => segment.source)) {
+    return compositeDuration > 0 && compositeElapsed >= compositeDuration - 1e-3
+  }
+  const tracks = p?.animationState?.tracks as Array<TrackEntry | null> | undefined
+  if (!tracks || !tracks.length) return true
+  const EPS = 1e-3
+  return tracks.every(track => {
+    if (!track || !track.animation) return true
+    const duration = track.animation.duration || 0
+    const trackTime = track.trackTime || 0
+    return duration > 0 ? trackTime >= duration - EPS : true
+  })
+}
+
+function stopPlayerRenderLoop(p: SpinePlayer | null) {
+  if (!p) return
+  ;(p as unknown as { stopRequestAnimationFrame?: boolean }).stopRequestAnimationFrame = true
+}
+
+function startPlayerRenderLoop(p: SpinePlayer | null) {
+  if (!p) return
+  ;(p as unknown as { stopRequestAnimationFrame?: boolean }).stopRequestAnimationFrame = false
+  ;(p as unknown as SpinePlayerInternal).drawFrame(true)
+}
+
+function getPremultipliedAlpha(p: SpinePlayer | null) {
+  if (!p) return true
+  const internal = p as unknown as SpinePlayerInternal
+  const value = (internal.config as { premultipliedAlpha?: boolean } | undefined)?.premultipliedAlpha
+  return typeof value === 'boolean' ? value : true
+}
+
+function currentCompositeTime(p: SpinePlayer | null) {
+  if (!p || !compositeSchedule.length) {
+    return { time: compositeElapsed, hasTracks: false }
+  }
+  const tracks = p.animationState?.tracks as Array<{ animation?: Animation; trackTime?: number } | null> | undefined
+  if (!tracks || !tracks.length) return { time: compositeElapsed, hasTracks: false }
+  let maxTime = 0
+  let hasTracks = false
+  tracks.forEach((track, trackIndex) => {
+    if (!track || !track.animation) return
+    const segment = compositeSchedule.find(
+      item =>
+        !item.source &&
+        item.track === trackIndex &&
+        item.name === track.animation?.name &&
+        (track.trackTime ?? 0) <= item.duration + 0.01,
+    )
+    if (!segment) return
+    hasTracks = true
+    const trackTime = Math.max(0, Math.min(segment.duration, track.trackTime ?? 0))
+    maxTime = Math.max(maxTime, segment.start + trackTime)
+  })
+  return { time: hasTracks ? maxTime : compositeElapsed, hasTracks }
+}
+
+function renderCompositeFrame(timestamp?: number) {
+  if (!player || !player.skeleton || !player.animationState || !compositeActive) return
+  const renderer = player.sceneRenderer
+  if (!renderer) return
+  const now = timestamp ?? performance.now()
+  const speed = player.speed || store.animationSpeed || 1
+  if (overlayLastTimestamp === null) overlayLastTimestamp = now
+  const delta = (now - overlayLastTimestamp) / 1000
+  overlayLastTimestamp = now
+
+  if (manualCamera) {
+    const cam = renderer.camera
+    cam.position.x = manualCamera.position.x
+    cam.position.y = manualCamera.position.y
+    cam.zoom = manualCamera.zoom
+    cam.update()
+  }
+
+  if (store.playing && speed > 0) {
+    player.animationState.update(delta * speed)
+    player.animationState.apply(player.skeleton)
+    player.skeleton.updateWorldTransform()
+    applyLayerVisibility(player.skeleton)
+    const { time, hasTracks } = currentCompositeTime(player)
+    compositeElapsed = hasTracks ? time : compositeElapsed + delta * speed
+    overlayInstances.forEach(overlay => {
+      applySegmentsToState(overlay.state, overlay.skeleton, overlay.segments, compositeElapsed, true)
+      applyLayerVisibility(overlay.skeleton, overlay.source)
+    })
+    if (!exportingAnimation && compositeDuration > 0 && compositeElapsed >= compositeDuration - 0.0001 && compositeMapping) {
+      void startComposite(player, compositeMapping, compositeElapsed % compositeDuration)
+      return
+    }
+  } else {
+    player.animationState.apply(player.skeleton)
+    player.skeleton.updateWorldTransform()
+    applyLayerVisibility(player.skeleton)
+    const { time, hasTracks } = currentCompositeTime(player)
+    if (hasTracks) {
+      compositeElapsed = time
+    }
+    overlayInstances.forEach(overlay => {
+      applySegmentsToState(overlay.state, overlay.skeleton, overlay.segments, compositeElapsed, true)
+      applyLayerVisibility(overlay.skeleton, overlay.source)
+    })
+  }
+
+  clearRendererBackground(renderer)
+  renderer.begin()
+  const premultiplied = getPremultipliedAlpha(player)
+  renderer.drawSkeleton(player.skeleton, premultiplied)
+  overlayInstances.forEach(overlay => {
+    if (!overlayActiveAt(overlay.segments, compositeElapsed)) return
+    const current = overlay.state.getCurrent(0)
+    if (!current || !current.animation) {
+      overlay.skeleton.setToSetupPose()
+      overlay.skeleton.updateWorldTransform()
+      return
+    }
+    renderer.drawSkeleton(overlay.skeleton, premultiplied)
+  })
+  renderer.end()
+
+  if (compositeDuration > 0) {
+    progress.value = Math.min(compositeElapsed / compositeDuration, 1)
+  }
+  drawOverlay()
+
+  if (compositeActive && overlayInstances.length > 0) {
+    overlayRenderHandle = requestAnimationFrame(renderCompositeFrame)
+  } else {
+    overlayRenderHandle = null
+  }
+}
+
+function advanceCompositeStates(deltaSeconds: number) {
+  if (!player || !player.skeleton || !player.animationState) return
+  const speed = player.speed || store.animationSpeed || 1
+  player.animationState.update(deltaSeconds * speed)
+  player.animationState.apply(player.skeleton)
+  player.skeleton.updateWorldTransform()
+  const { time, hasTracks } = currentCompositeTime(player)
+  compositeElapsed = hasTracks ? time : compositeElapsed + deltaSeconds * speed
+  overlayInstances.forEach(overlay => {
+    applySegmentsToState(overlay.state, overlay.skeleton, overlay.segments, compositeElapsed, true)
+  })
+}
+
+function renderCompositeOnce() {
+  if (!player || !player.skeleton || !player.sceneRenderer) return
+  const { time, hasTracks } = currentCompositeTime(player)
+  if (hasTracks) {
+    compositeElapsed = time
+  }
+  const renderer = player.sceneRenderer
+  if (manualCamera) {
+    const cam = renderer.camera
+    cam.position.x = manualCamera.position.x
+    cam.position.y = manualCamera.position.y
+    cam.zoom = manualCamera.zoom
+    cam.update()
+  }
+  applyLayerVisibility(player.skeleton)
+  clearRendererBackground(renderer)
+  renderer.begin()
+  const premultiplied = getPremultipliedAlpha(player)
+  renderer.drawSkeleton(player.skeleton, premultiplied)
+  overlayInstances.forEach(overlay => {
+    if (!overlayActiveAt(overlay.segments, compositeElapsed)) return
+    applyLayerVisibility(overlay.skeleton, overlay.source)
+    const current = overlay.state.getCurrent(0)
+    if (!current || !current.animation) {
+      overlay.skeleton.setToSetupPose()
+      overlay.skeleton.updateWorldTransform()
+      return
+    }
+    renderer.drawSkeleton(overlay.skeleton, premultiplied)
+  })
+  renderer.end()
+  drawOverlay()
+}
+
+async function startComposite(p: SpinePlayer, mapping: CutsceneComposite, seekToSeconds = 0) {
+  const state = p.animationState
+  const skeleton = p.skeleton
+  if (!state || !skeleton) return
+  const startToken = ++compositeStartToken
+  const selectedCharId = store.selectedCharacterId
+  const { schedule, duration, time, externalAssets } = await scheduleCompositeTimeline(p, mapping, seekToSeconds)
+  if (startToken !== compositeStartToken || p !== player || selectedCharId !== store.selectedCharacterId) return
+  registerExternalLayerNames(externalAssets)
+
+  compositeActive = true
+  compositeSchedule = schedule
+  compositeDuration = duration
+  compositeElapsed = time
+  compositeLastTimestamp = store.playing ? performance.now() : null
+  compositeMapping = mapping
+  compositeCharId = store.selectedCharacterId
+  progress.value = duration > 0 ? time / duration : 0
+
+  const perLayer = new Map<string, { trackIndex: number; source: string | null; segments: CompositeSegment[] }>()
+  schedule.forEach(segment => {
+    const key = `${segment.source ?? 'base'}:${segment.track}`
+    if (!perLayer.has(key)) {
+      perLayer.set(key, { trackIndex: segment.track, source: segment.source, segments: [] })
+    }
+    perLayer.get(key)!.segments.push(segment)
+  })
+
+  applySegmentsToState(state, skeleton, perLayer.get('base:0')?.segments ?? [], time)
+  applyLayerVisibility(skeleton)
+
+  disposeOverlays()
+  stopOverlayRendering()
+  for (const layer of perLayer.values()) {
+    if (!layer.source && layer.trackIndex === 0) continue
+    overlayInstances.push(
+      createOverlayInstance(
+        layer.trackIndex,
+        layer.segments,
+        skeleton,
+        state,
+        time,
+        layer.source,
+        layer.source ? externalAssets.get(layer.source) : undefined,
+      ),
+    )
+  }
+  overlayInstances.forEach(overlay => applyLayerVisibility(overlay.skeleton, overlay.source))
+
+  if (overlayInstances.length > 0) {
+    stopPlayerRenderLoop(p)
+    overlayLastTimestamp = null
+    if (store.playing || exportingAnimation) {
+      overlayRenderHandle = requestAnimationFrame(renderCompositeFrame)
+    } else {
+      renderCompositeOnce()
+    }
+  } else {
+    startPlayerRenderLoop(p)
+    ;(p as unknown as SpinePlayerInternal).drawFrame(false)
+  }
+
+  if (store.playing) {
+    p.play()
+  } else {
+    p.pause()
+  }
+}
+
+function seekCompositeTo(p: SpinePlayer, time: number) {
+  if (!compositeActive || !compositeSchedule.length || !compositeMapping) return false
+  const state = p.animationState
+  const skeleton = p.skeleton
+  if (!state || !skeleton) return false
+  const duration = compositeDuration || compositeSchedule.reduce((max, seg) => Math.max(max, seg.start + seg.duration), 0)
+  const normalizedTime = duration > 0 ? ((time % duration) + duration) % duration : 0
+  compositeElapsed = normalizedTime
+  applySegmentsToState(state, skeleton, compositeSchedule.filter(seg => !seg.source && seg.track === 0), normalizedTime)
+  overlayInstances.forEach(overlay => applySegmentsToState(overlay.state, overlay.skeleton, overlay.segments, normalizedTime, true))
+  if (overlayInstances.length > 0) {
+    renderCompositeOnce()
+  } else {
+    ;(p as unknown as SpinePlayerInternal).drawFrame(false)
+  }
+  progress.value = duration > 0 ? normalizedTime / duration : 0
+  return true
+}
+
+function requestPausedCompositeRender() {
+  if (!compositeActive || overlayInstances.length === 0 || store.playing || exportingAnimation) return
+  if (pausedCompositeRenderPending) return
+  pausedCompositeRenderPending = true
+  requestAnimationFrame(() => {
+    pausedCompositeRenderPending = false
+    renderCompositeOnce()
+  })
 }
 
 function isBackgroundSlot(name: string) {
@@ -394,22 +1205,24 @@ function computeCameraBounds(skeleton: SpineSkeleton | null) {
   return { offset: fallbackOffset, size: fallbackSize }
 }
 
-function applyLayerVisibility(skeleton: SpineSkeleton | null) {
+function applyLayerVisibility(skeleton: SpineSkeleton | null, source: string | null = null) {
   if (!skeleton) return
   const visibility = store.layerVisibility
   const slots = skeleton.slots as unknown as SpineSlot[]
   for (const slot of slots) {
     const name = slot.data?.name
     if (!name) continue
-    if (visibility[name] === false) {
+    if (visibility[getScopedLayerName(source, name)] === false) {
       if (slot.color) slot.color.a = 0
       if (slot.darkColor) slot.darkColor.a = 0
     }
   }
 }
 
-function restoreLayerAlphas(skeleton: SpineSkeleton | null, slotName: string) {
+function restoreLayerAlphas(skeleton: SpineSkeleton | null, layerName: string, source: string | null = null) {
   if (!skeleton) return
+  const slotName = getSlotNameForLayerKey(layerName, source)
+  if (!slotName) return
   const slots = skeleton.slots as unknown as SpineSlot[]
   const slot = slots.find(item => item.data?.name === slotName)
   if (!slot) return
@@ -423,97 +1236,6 @@ function restoreLayerAlphas(skeleton: SpineSkeleton | null, slotName: string) {
       slot.darkColor.a = baseAlpha
     }
   }
-}
-
-function pointInPolygon(px: number, py: number, verts: Float32Array, vertCount: number): boolean {
-  let inside = false
-  for (let i = 0, j = vertCount - 2; i < vertCount; j = i, i += 2) {
-    const xi = verts[i], yi = verts[i + 1]
-    const xj = verts[j], yj = verts[j + 1]
-    if (((yi > py) !== (yj > py)) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
-      inside = !inside
-    }
-  }
-  return inside
-}
-
-function hitTestSlots(screenX: number, screenY: number): string | null {
-  if (!player || !player.skeleton || !manualCamera || !player.canvas) return null
-  const skeleton = player.skeleton
-  const canvas = player.canvas
-  const cam = manualCamera
-
-  // Convert screen coords (relative to canvas) to world coords
-  const canvasRect = canvas.getBoundingClientRect()
-  const canvasX = screenX - canvasRect.left
-  const canvasY = screenY - canvasRect.top
-
-  // Normalize to [0, 1] then map to camera world space
-  const ndcX = canvasX / canvasRect.width
-  const ndcY = canvasY / canvasRect.height
-
-  const worldWidth = canvas.width * cam.zoom
-  const worldHeight = canvas.height * cam.zoom
-  const worldX = cam.position.x + (ndcX - 0.5) * worldWidth
-  const worldY = cam.position.y + (0.5 - ndcY) * worldHeight // Y is flipped
-
-  // Iterate draw order in reverse (top-most first)
-  const drawOrder = skeleton.drawOrder
-  for (let i = drawOrder.length - 1; i >= 0; i--) {
-    const slot = drawOrder[i]
-    const slotName = slot.data.name
-
-    // Skip hidden layers
-    if (store.layerVisibility[slotName] === false) continue
-
-    const attachment = slot.getAttachment() as unknown as {
-      worldVerticesLength?: number
-      computeWorldVertices?: (
-        slotArg: typeof slot,
-        start: number,
-        count: number,
-        output: Float32Array,
-        offsetArg: number,
-        stride: number,
-      ) => void
-    }
-
-    if (!attachment || typeof attachment.computeWorldVertices !== 'function') continue
-    const vertexCount = attachment.worldVerticesLength ?? 0
-    if (!vertexCount) continue
-
-    const worldVertices = new Float32Array(vertexCount)
-    try {
-      attachment.computeWorldVertices(slot, 0, vertexCount, worldVertices, 0, 2)
-    } catch {
-      continue
-    }
-
-    if (pointInPolygon(worldX, worldY, worldVertices, vertexCount)) {
-      return slotName
-    }
-  }
-  return null
-}
-
-let pointerDownTime = 0
-let pointerDownPos = { x: 0, y: 0 }
-
-function onCanvasPointerDown(event: PointerEvent) {
-  pointerDownTime = Date.now()
-  pointerDownPos = { x: event.clientX, y: event.clientY }
-}
-
-function onCanvasPointerUp(event: PointerEvent) {
-  // Only treat as click if short duration and minimal movement (not a pan/drag)
-  const elapsed = Date.now() - pointerDownTime
-  const dx = event.clientX - pointerDownPos.x
-  const dy = event.clientY - pointerDownPos.y
-  const dist = Math.sqrt(dx * dx + dy * dy)
-  if (elapsed > 300 || dist > 5) return
-
-  const hit = hitTestSlots(event.clientX, event.clientY)
-  store.selectedLayer = hit
 }
 
 function stopPointerTracking(event?: PointerEvent) {
@@ -845,10 +1567,21 @@ watch(
       const wasVisible = previousLayerVisibility.get(name)
       if (wasVisible === false && isVisible) {
         restoreLayerAlphas(skeleton, name)
+        overlayInstances.forEach(overlay => restoreLayerAlphas(overlay.skeleton, name, overlay.source))
       }
       previousLayerVisibility.set(name, isVisible)
     }
-    ;(player as unknown as SpinePlayerInternal).drawFrame(false)
+    overlayInstances.forEach(overlay => {
+      overlay.state.apply(overlay.skeleton)
+      overlay.skeleton.updateWorldTransform()
+      applyLayerVisibility(overlay.skeleton, overlay.source)
+    })
+    if (compositeActive && overlayInstances.length > 0) {
+      requestPausedCompositeRender()
+    } else {
+      ;(player as unknown as SpinePlayerInternal).drawFrame(false)
+      drawOverlay()
+    }
   },
   { deep: true },
 )
@@ -887,21 +1620,18 @@ async function load() {
   size = new Vector2()
 
   if (player) {
-    if (player.canvas) {
-      player.canvas.removeEventListener('pointerdown', onCanvasPointerDown)
-      player.canvas.removeEventListener('pointerup', onCanvasPointerUp)
-    }
+    resetComposite()
+    clearExternalSkeletonCache()
     player.dispose()
     container.value.innerHTML = ''
     manualCamera = null
+    if (detachCameraListeners) {
+      detachCameraListeners()
+      detachCameraListeners = null
+    }
   }
 
-  const originalUpdate = GLTexture.prototype.update
-  GLTexture.prototype.update = function (useMipMaps: boolean) {
-    const gl = this.context.gl
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
-    originalUpdate.call(this, useMipMaps)
-  }
+  ensureGLTexturePremultiplyPatch()
 
   player = new SpinePlayer(container.value, {
     showControls: false,
@@ -925,6 +1655,10 @@ async function load() {
     transitionTime: 0,
     },
     update: () => {
+      if (compositeActive && overlayInstances.length > 0) {
+        drawOverlay()
+        return
+      }
       if (manualCamera && player) {
         const cam = player.sceneRenderer!.camera
         cam.position.x = manualCamera.position.x
@@ -932,17 +1666,60 @@ async function load() {
         cam.zoom = manualCamera.zoom
         cam.update()
       }
-      if (player && store.playing) {
-        const trackIndex = getActiveTrackIndexForSelectedAnimation(player.animationState)
-        const entry = player.animationState?.getCurrent(trackIndex)
-        if (entry && entry.animation) {
-          const d = entry.animation.duration
-          if (d > 0) {
-            progress.value = (entry.trackTime % d) / d
+      if (player) {
+        if (compositeActive && compositeMapping && compositeCharId === store.selectedCharacterId) {
+          if (store.playing && compositeDuration > 0) {
+            const now = performance.now()
+            if (compositeLastTimestamp !== null) {
+              const delta = (now - compositeLastTimestamp) / 1000
+              const speed = player.speed || store.animationSpeed || 1
+              const { time, hasTracks } = currentCompositeTime(player)
+              compositeElapsed = hasTracks ? time : compositeElapsed + delta * speed
+            }
+            compositeLastTimestamp = now
+            if (!exportingAnimation && compositeDuration > 0 && compositeElapsed >= compositeDuration - 0.0001) {
+              if (!compositeRestarting) {
+                compositeRestarting = true
+                void startComposite(player, compositeMapping, compositeElapsed % compositeDuration)
+                  .finally(() => {
+                    compositeRestarting = false
+                  })
+              }
+              return
+            }
+            if (exportingAnimation && compositeDuration > 0 && compositeElapsed >= compositeDuration - 0.0001) {
+              if (recorder && recorder.state === 'recording') {
+                recorder.stop()
+              }
+              return
+            }
+          }
+          progress.value = compositeDuration > 0 ? Math.min(compositeElapsed / compositeDuration, 1) : 0
+          if (store.playing && compositeDuration > 0 && !exportingAnimation) {
+            const hasTrack = compositeTracksActive(player)
+            const finished = compositeTracksFinished(player)
+            if ((!hasTrack || finished) && !compositeRestarting) {
+              compositeRestarting = true
+              void startComposite(player, compositeMapping, compositeElapsed % compositeDuration)
+                .finally(() => {
+                  compositeRestarting = false
+                })
+              return
+            }
+          }
+        } else if (store.playing) {
+          const trackIndex = getActiveTrackIndexForSelectedAnimation(player.animationState)
+          const entry = player.animationState?.getCurrent(trackIndex)
+          if (entry && entry.animation) {
+            const d = entry.animation.duration
+            if (d > 0) {
+              progress.value = (entry.trackTime % d) / d
+            }
           }
         }
       }
       applyLayerVisibility(player?.skeleton ?? null)
+      drawOverlay()
     },
     success: (p: SpinePlayer) => {
       const skeleton = p.skeleton ?? null
@@ -950,6 +1727,11 @@ async function load() {
       skeleton?.updateWorldTransform()
 
       const names = p.animationState?.data.skeletonData.animations.map((a: Animation) => a.name) || []
+      for (const compositeDefinition of getCompositesForCurrent()) {
+        if (!names.includes(compositeDefinition.name)) {
+          names.push(compositeDefinition.name)
+        }
+      }
       emit('animations', names)
       const skinNames = skeleton?.data.skins.map(s => s.name) || []
       emit('skins', skinNames)
@@ -964,7 +1746,14 @@ async function load() {
           store.selectedAnimation = names[0]
         }
         if (store.selectedAnimation) {
-          setSpineAnimation(p, store.selectedAnimation, { loop: true })
+          const mapping = getCompositeForAnimation(store.selectedAnimation)
+          if (mapping) {
+            void startComposite(p, mapping, 0)
+          } else {
+            resetComposite()
+            startPlayerRenderLoop(p)
+            setSpineAnimation(p, store.selectedAnimation, { loop: true })
+          }
           if (store.playing) {
             p.play()
           } else {
@@ -1070,6 +1859,15 @@ async function load() {
       defaultCameraPos = new Vector2(manualCamera.position.x, manualCamera.position.y)
       defaultZoom = manualCamera.zoom
       new CameraController(p.canvas!, manualCamera)
+      if (detachCameraListeners) detachCameraListeners()
+      const handlePointerMove = () => requestPausedCompositeRender()
+      const handleWheel = () => requestPausedCompositeRender()
+      canvas.addEventListener('pointermove', handlePointerMove)
+      canvas.addEventListener('wheel', handleWheel, { passive: true })
+      detachCameraListeners = () => {
+        canvas.removeEventListener('pointermove', handlePointerMove)
+        canvas.removeEventListener('wheel', handleWheel)
+      }
 
       selectAnimation()
 
@@ -1085,10 +1883,6 @@ async function load() {
   player.speed = store.animationSpeed
   applyPlayerBackgroundTransparency(player)
   updateCanvasPointerEvents(player)
-  if (player.canvas) {
-    player.canvas.addEventListener('pointerdown', onCanvasPointerDown)
-    player.canvas.addEventListener('pointerup', onCanvasPointerUp)
-  }
 }
 watch(() => store.selectedCharacterId, () => {
   if (recorder && recorder.state === 'recording') {
@@ -1098,6 +1892,7 @@ watch(() => store.selectedCharacterId, () => {
   if (exportingFrames) {
     cancelExport = true
   }
+  resetComposite()
   store.animationCategory = 'character'
   void load()
 })
@@ -1110,6 +1905,7 @@ watch(() => store.animationCategory, () => {
   if (exportingFrames) {
     cancelExport = true
   }
+  resetComposite()
   void load()
 })
 
@@ -1123,7 +1919,15 @@ watch(() => store.selectedAnimation, anim => {
   }
   progress.value = 0
   if (player && anim) {
-    setSpineAnimation(player, anim, { loop: true })
+    const mapping = getCompositeForAnimation(anim)
+    if (mapping) {
+      resetComposite()
+      void startComposite(player, mapping, 0)
+    } else {
+      resetComposite()
+      startPlayerRenderLoop(player)
+      setSpineAnimation(player, anim, { loop: true })
+    }
     store.playing = true
     player.play()
   }
@@ -1135,13 +1939,38 @@ watch(() => store.selectedSkin, skin => {
     player.skeleton?.setSlotsToSetupPose()
     player.animationState?.apply(player.skeleton!)
     player.skeleton!.updateWorldTransform()
+    if (compositeActive && compositeMapping) {
+      void startComposite(player, compositeMapping, compositeElapsed)
+    }
   }
 })
 
 watch(() => store.playing, playing => {
   if (!player) return
-  if (playing) player.play()
-  else player.pause()
+  if (playing) {
+    if (compositeActive && compositeMapping) {
+      if (!compositeRestarting && (!compositeTracksActive(player) || compositeElapsed >= compositeDuration - 0.0001)) {
+        compositeRestarting = true
+        void startComposite(player, compositeMapping, compositeElapsed % compositeDuration)
+          .finally(() => {
+            compositeRestarting = false
+          })
+      }
+    }
+    if (compositeActive) {
+      compositeLastTimestamp = performance.now()
+      overlayLastTimestamp = performance.now()
+      if (overlayInstances.length > 0 && overlayRenderHandle === null) {
+        overlayRenderHandle = requestAnimationFrame(renderCompositeFrame)
+      }
+    }
+    player.play()
+  } else {
+    compositeLastTimestamp = null
+    overlayLastTimestamp = null
+    stopOverlayRendering()
+    player.pause()
+  }
 })
 
 watch(() => store.animationSpeed, speed => {
@@ -1150,6 +1979,9 @@ watch(() => store.animationSpeed, speed => {
 
 watch(() => store.backgroundColor, () => {
   applyPlayerBackgroundTransparency()
+  if (compositeActive && overlayInstances.length > 0) {
+    requestPausedCompositeRender()
+  }
 })
 
 watch(() => store.showDatingBg, () => {
@@ -1160,7 +1992,14 @@ watch(() => store.showDatingBg, () => {
   if (exportingFrames) {
     cancelExport = true
   }
+  resetComposite()
   void load()
+})
+
+watch(() => store.layerSelectionEnabled, enabled => {
+  if (!enabled) {
+    store.selectedLayer = null
+  }
 })
 
 watch(showingMobileOverlay, value => {
@@ -1170,7 +2009,161 @@ watch(showingMobileOverlay, value => {
   updateCanvasPointerEvents()
 })
 
+function isPointInPolygon(px: number, py: number, vertices: Float32Array): boolean {
+  let inside = false
+  for (let i = 0, j = vertices.length - 2; i < vertices.length; j = i, i += 2) {
+    const xi = vertices[i], yi = vertices[i + 1]
+    const xj = vertices[j], yj = vertices[j + 1]
+    const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+function getCameraState() {
+  const renderCam = player?.sceneRenderer?.camera
+  if (!renderCam) return null
+  return {
+    cx: renderCam.position.x,
+    cy: renderCam.position.y,
+    zoom: renderCam.zoom,
+    vw: renderCam.viewportWidth,
+    vh: renderCam.viewportHeight
+  }
+}
+
+function onViewerPointerDown(e: PointerEvent) {
+  if (!store.layerSelectionEnabled || !player || editingBackground.value) return
+  if (e.button !== 0) return
+
+  const bounds = viewerWrapper.value?.getBoundingClientRect()
+  if (!bounds) return
+
+  const camState = getCameraState()
+  if (!camState) return
+
+  const screenX = e.clientX - bounds.left
+  const screenY = e.clientY - bounds.top
+
+  const { cx, cy, zoom, vw, vh } = camState
+
+  const nx = (screenX / bounds.width) * 2 - 1
+  const ny = 1 - 2 * (screenY / bounds.height)
+
+  const wx = nx * (vw / 2) * zoom + cx
+  const wy = ny * (vh / 2) * zoom + cy
+
+  const slots = player.skeleton?.drawOrder
+  if (!slots) return
+
+  for (let i = slots.length - 1; i >= 0; i--) {
+    const slot = slots[i] as unknown as SpineSlot
+    if (store.layerVisibility[slot.data.name] === false) continue
+
+    const attachment = slot.getAttachment?.() as VertexAttachment | undefined
+    const vertexCount = attachment?.worldVerticesLength ?? 0
+
+    if (attachment && vertexCount > 0 && typeof attachment.computeWorldVertices === 'function') {
+      const worldVertices = new Float32Array(vertexCount)
+      attachment.computeWorldVertices(slot as Slot, 0, vertexCount, worldVertices, 0, 2)
+      if (isPointInPolygon(wx, wy, worldVertices)) {
+        if (store.selectedLayer !== slot.data.name) {
+          store.selectedLayer = slot.data.name
+        } else {
+          store.selectedLayer = null
+        }
+        return
+      }
+    }
+  }
+  store.selectedLayer = null
+}
+
+function drawOverlay() {
+  const canvas = overlayCanvas.value
+  if (!canvas || !viewerWrapper.value || !player) return
+
+  const rect = viewerWrapper.value.getBoundingClientRect()
+  if (canvas.width !== rect.width || canvas.height !== rect.height) {
+    canvas.width = rect.width
+    canvas.height = rect.height
+  }
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  const selectedLayer = store.selectedLayer
+  if (!selectedLayer || !store.layerSelectionEnabled) return
+
+  const skeleton = player.skeleton
+  if (!skeleton) return
+
+  const slots = skeleton.slots as unknown as SpineSlot[]
+  const slot = slots.find(s => s.data.name === selectedLayer)
+  if (!slot || store.layerVisibility[selectedLayer] === false) return
+
+  const attachment = slot.getAttachment?.() as VertexAttachment | undefined
+  const vertexCount = attachment?.worldVerticesLength ?? 0
+  if (attachment && vertexCount > 0 && typeof attachment.computeWorldVertices === 'function') {
+    const worldVertices = new Float32Array(vertexCount)
+    attachment.computeWorldVertices(slot as Slot, 0, vertexCount, worldVertices, 0, 2)
+
+    const camState = getCameraState()
+    if (!camState) return
+    const { cx, cy, zoom, vw, vh } = camState
+
+    ctx.beginPath()
+    for (let i = 0; i < worldVertices.length; i += 2) {
+       const wx = worldVertices[i]
+       const wy = worldVertices[i+1]
+
+       const nx = ((wx - cx) / zoom) / (vw / 2)
+       const ny = ((wy - cy) / zoom) / (vh / 2)
+
+       const screenX = (nx + 1) * 0.5 * canvas.width
+       const screenY = (1 - (ny + 1) * 0.5) * canvas.height
+
+       if (i === 0) ctx.moveTo(screenX, screenY)
+       else ctx.lineTo(screenX, screenY)
+    }
+    ctx.closePath()
+    ctx.strokeStyle = '#818cf8' // indigo-400
+    ctx.lineWidth = 2
+    ctx.lineJoin = 'round'
+    ctx.stroke()
+    ctx.fillStyle = 'rgba(79, 70, 229, 0.4)' // indigo-600 with opacity
+    ctx.fill()
+  }
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+  const key = e.key.toLowerCase()
+
+  if (key === 'h') {
+    if (store.selectedLayer) {
+      store.layerVisibility[store.selectedLayer] = false
+      store.hiddenLayerStack.push(store.selectedLayer)
+      store.selectedLayer = null
+    }
+  } else if (key === 'u') {
+    if (store.hiddenLayerStack.length > 0) {
+      const last = store.hiddenLayerStack.pop()!
+      store.layerVisibility[last] = true
+      store.selectedLayer = last
+    }
+  } else if (e.key === 'Escape') {
+    while (store.hiddenLayerStack.length > 0) {
+      const last = store.hiddenLayerStack.pop()!
+      store.layerVisibility[last] = true
+    }
+    store.selectedLayer = null
+  }
+}
+
 onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
   ensureResizeObserver()
   if (activeBackgroundSrc.value) {
     setBackgroundSource(activeBackgroundSrc.value)
@@ -1179,7 +2172,20 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
   stopPointerTracking()
+  resetComposite()
+  clearExternalSkeletonCache()
+  if (compositeFrameHandle !== null) {
+    cancelAnimationFrame(compositeFrameHandle)
+    compositeFrameHandle = null
+  }
+  if (detachCameraListeners) {
+    detachCameraListeners()
+    detachCameraListeners = null
+  }
+  player?.dispose()
+  player = null
   if (resizeObserver && viewerWrapper.value) {
     resizeObserver.unobserve(viewerWrapper.value)
   }
@@ -1189,6 +2195,17 @@ onBeforeUnmount(() => {
 
 function seek() {
   if (!player) return
+  const mapping = getCompositeForAnimation(store.selectedAnimation)
+  if (mapping) {
+    const targetTime = progress.value * compositeDuration
+    const reused = compositeActive && compositeMapping === mapping && compositeSchedule.length > 0
+    if (reused) {
+      seekCompositeTo(player, targetTime)
+    } else {
+      void startComposite(player, mapping, targetTime)
+    }
+    return
+  }
   const trackIndex = getActiveTrackIndexForSelectedAnimation(player.animationState)
   const entry = player.animationState?.getCurrent(trackIndex)
   if (entry && entry.animation && player.skeleton) {
@@ -1207,7 +2224,44 @@ function resetCamera() {
   manualCamera.position.y = defaultCameraPos.y
   manualCamera.zoom = defaultZoom
   manualCamera.update()
+  if (compositeActive && overlayInstances.length > 0 && !store.playing) {
+    requestPausedCompositeRender()
+  }
 }
+
+function getZoomBounds() {
+  const baseZoom = defaultZoom || manualCamera?.zoom || 1
+  return {
+    min: baseZoom * MIN_ZOOM_FACTOR,
+    max: baseZoom * MAX_ZOOM_FACTOR,
+  }
+}
+
+function setCameraZoom(nextZoom: number) {
+  if (!manualCamera) return
+  const { min, max } = getZoomBounds()
+  manualCamera.zoom = Math.min(Math.max(nextZoom, min), max)
+  manualCamera.update()
+  if (compositeActive && overlayInstances.length > 0 && !store.playing) {
+    requestPausedCompositeRender()
+  }
+}
+
+function zoomIn() {
+  if (!manualCamera) return
+  setCameraZoom(manualCamera.zoom / ZOOM_STEP_FACTOR)
+}
+
+function zoomOut() {
+  if (!manualCamera) return
+  setCameraZoom(manualCamera.zoom * ZOOM_STEP_FACTOR)
+}
+
+function zoomByFactor(factor: number) {
+  if (!manualCamera || !Number.isFinite(factor) || factor <= 0) return
+  setCameraZoom(manualCamera.zoom * factor)
+}
+
 function saveScreenshot(transparent: boolean) {
   if (!player || !manualCamera) return
 
@@ -1221,36 +2275,64 @@ function saveScreenshot(transparent: boolean) {
   const prevStyleWidth = canvas.style.width
   const prevStyleHeight = canvas.style.height
 
-  const prevViewportWidth = player.sceneRenderer!.camera.viewportWidth
   const gl = (player as unknown as SpinePlayerInternal).context.gl
   const maxTexSize = gl.getParameter(gl.MAX_TEXTURE_SIZE)
-  const captureSize = Math.min(3000, maxTexSize)
+  const mapping = getCompositeForAnimation(animationName)
+  const hasOverlap = !!mapping && mapping.some(segment => Array.isArray(segment))
+
+  let targetWidth: number
+  let targetHeight: number
+  if (hasOverlap) {
+    const aspect = prevWidth > 0 ? prevHeight / prevWidth : 1
+    targetWidth = Math.min(3000, maxTexSize)
+    targetHeight = Math.round(targetWidth * aspect)
+    if (targetHeight > maxTexSize) {
+      targetHeight = maxTexSize
+      targetWidth = Math.min(maxTexSize, Math.round(targetHeight / aspect))
+    }
+  } else {
+    const targetSize = Math.min(3000, maxTexSize)
+    targetWidth = targetSize
+    targetHeight = targetSize
+  }
+
   if (!store.useCurrentCamera) {
     cam.position.x = defaultCameraPos.x
     cam.position.y = defaultCameraPos.y
-    const paddedWidth = size.x
-    const paddedHeight = size.y + 100
-    cam.zoom = Math.max(paddedWidth / captureSize, paddedHeight / captureSize)
-    cam.update()
-  } else {
-    cam.zoom = (prevViewportWidth * prevZoom) / captureSize
-    cam.update()
   }
+  const scaleW = targetWidth / prevWidth
+  const scaleH = targetHeight / prevHeight
+  const scale = Math.max(scaleW, scaleH) || 1
+  cam.zoom = hasOverlap ? prevZoom : prevZoom / scale
+  cam.update()
 
   const dpr = window.devicePixelRatio || 1
-  canvas.width = captureSize
-  canvas.height = captureSize
-  canvas.style.width = `${captureSize / dpr}px`
-  canvas.style.height = `${captureSize / dpr}px`
+  canvas.width = targetWidth
+  canvas.height = targetHeight
+  canvas.style.width = `${targetWidth / dpr}px`
+  canvas.style.height = `${targetHeight / dpr}px`
+  const renderer = player.sceneRenderer
+  const resizeRenderer = (width: number, height: number) => {
+    const instance = renderer as unknown as { resize?: (w: number, h?: number) => void } | null
+    instance?.resize?.(width, height)
+  }
+  resizeRenderer(targetWidth, targetHeight)
 
   applyPlayerBackgroundTransparency()
-  ;(player as unknown as SpinePlayerInternal).drawFrame(false)
+  forceTransparentClear = transparent
+  if (compositeActive && overlayInstances.length > 0) {
+    renderCompositeOnce()
+  } else {
+    ;(player as unknown as SpinePlayerInternal).drawFrame(false)
+  }
   requestAnimationFrame(() => {
     const url = getCompositeDataURL(canvas, transparent)
+    forceTransparentClear = false
     canvas.width = prevWidth
     canvas.height = prevHeight
     canvas.style.width = prevStyleWidth
     canvas.style.height = prevStyleHeight
+    resizeRenderer(prevWidth, prevHeight)
 
     if (!store.useCurrentCamera) {
       cam.position.x = prevPos.x
@@ -1262,7 +2344,11 @@ function saveScreenshot(transparent: boolean) {
       cam.update()
     }
     applyPlayerBackgroundTransparency()
-    ;(player as unknown as SpinePlayerInternal).drawFrame(false)
+    if (compositeActive && overlayInstances.length > 0) {
+      renderCompositeOnce()
+    } else {
+      ;(player as unknown as SpinePlayerInternal).drawFrame(false)
+    }
 
     const a = document.createElement('a')
     a.href = url
@@ -1277,12 +2363,13 @@ function exportAnimation(transparent: boolean): Promise<void> {
   if (!p || !cam) return Promise.resolve()
 
   cancelExport = false
+  exportingAnimation = true
 
   const canvas = p.canvas!
   const animationName = store.selectedAnimation
   const fps = 60
 
-  return new Promise(resolve => {
+  return new Promise(async resolve => {
     applyPlayerBackgroundTransparency(p)
 
     const prevPos = new Vector2(cam.position.x, cam.position.y)
@@ -1301,7 +2388,10 @@ function exportAnimation(transparent: boolean): Promise<void> {
       )
       cam.update()
     }
-    const mimeType = 'video/webm'
+    const mimeType =
+      ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(type =>
+        MediaRecorder.isTypeSupported(type),
+      ) || 'video/webm'
     const compositeCanvas = document.createElement('canvas')
     compositeCanvas.width = canvas.width
     compositeCanvas.height = canvas.height
@@ -1338,13 +2428,24 @@ function exportAnimation(transparent: boolean): Promise<void> {
         cancelAnimationFrame(compositeFrameHandle)
         compositeFrameHandle = null
       }
-      if (!wasPlaying) p.pause()
       if (!store.useCurrentCamera) {
         cam.position.x = prevPos.x
         cam.position.y = prevPos.y
         cam.zoom = prevZoom
         cam.update()
       }
+      if (mapping) {
+        void startComposite(p, mapping, 0)
+      } else if (animName) {
+        setSpineAnimation(p, animName, { loop: true })
+      }
+      if (wasPlaying) {
+        p.play()
+      } else {
+        p.pause()
+      }
+      store.playing = wasPlaying
+      exportingAnimation = false
       recorder = null
       cancelExport = false
       resolve()
@@ -1352,22 +2453,33 @@ function exportAnimation(transparent: boolean): Promise<void> {
 
     const animName = store.selectedAnimation
     let duration = 3
+    let timelineEnd = duration
+    const mapping = getCompositeForAnimation(animName)
     if (animName && state) {
-      const anim = state.data.skeletonData.animations.find(
-        (a: Animation) => a.name === animName,
-      )
-      if (anim) duration = anim.duration
-      state.clearTrack(0)
-      state.clearTrack(1)
-      setSpineAnimation(p, animName, { loop: true, forceNoMix: true })
-      if (skeleton) {
-        state.apply(skeleton)
-        skeleton.updateWorldTransform()
-        ;(p as unknown as SpinePlayerInternal).drawFrame(false)
+      if (mapping) {
+        const info = await scheduleCompositeTimeline(p, mapping, 0)
+        duration = info.duration
+        timelineEnd = info.schedule.reduce((max, seg) => Math.max(max, seg.start + seg.duration), 0) || duration || 3
+        store.playing = true
+        await startComposite(p, mapping, 0)
+      } else {
+        const anim = state.data.skeletonData.animations.find(
+          (a: Animation) => a.name === animName,
+        )
+        if (anim) duration = anim.duration
+        timelineEnd = duration
+        state.clearTrack(0)
+        state.clearTrack(1)
+        setSpineAnimation(p, animName, { loop: true, forceNoMix: true })
+        if (skeleton) {
+          state.apply(skeleton)
+          skeleton.updateWorldTransform()
+          ;(p as unknown as SpinePlayerInternal).drawFrame(false)
+        }
       }
     }
 
-    const recordDuration = duration / (p.speed || store.animationSpeed || 1)
+    const recordDuration = timelineEnd / (p.speed || store.animationSpeed || 1)
 
     p.play()
     if (compositeCtx) {
@@ -1402,16 +2514,18 @@ function exportAnimationFrames(transparent: boolean): Promise<void> {
 
   cancelExport = false
   exportingFrames = true
+  exportingAnimation = true
 
   const canvas = p.canvas!
   const animationName = store.selectedAnimation
   const fps = 60
 
-  return new Promise(resolve => {
+  return new Promise(async resolve => {
     applyPlayerBackgroundTransparency(p)
 
     const prevPos = new Vector2(cam.position.x, cam.position.y)
     const prevZoom = cam.zoom
+    const wasPlaying = store.playing
 
     if (!store.useCurrentCamera) {
       cam.position.x = defaultCameraPos.x
@@ -1429,31 +2543,82 @@ function exportAnimationFrames(transparent: boolean): Promise<void> {
     let duration = 3
     const state = p.animationState
     const skeleton = p.skeleton
+    let timelineEnd = duration
+    let mapping: CutsceneComposite | null = null
     if (animName && state) {
-      const anim = state.data.skeletonData.animations.find(
-        (a: Animation) => a.name === animName,
-      )
-      if (anim) duration = anim.duration
-      state.clearTrack(0)
-      state.clearTrack(1)
-      setSpineAnimation(p, animName, { loop: false, forceNoMix: true })
-      if (skeleton) {
-        state.apply(skeleton)
-        skeleton.updateWorldTransform()
+      mapping = getCompositeForAnimation(animName)
+      if (mapping) {
+        const info = await scheduleCompositeTimeline(p, mapping, 0)
+        duration = info.duration
+        timelineEnd = info.duration
+        await startComposite(p, mapping, 0)
+        p.pause()
+        store.playing = false
+        compositeLastTimestamp = null
+        overlayLastTimestamp = null
+        stopOverlayRendering()
+        timelineEnd = Math.max(getTracksEndDuration(p.animationState) || 0, duration)
+      } else {
+        const anim = state.data.skeletonData.animations.find(
+          (a: Animation) => a.name === animName,
+        )
+        if (anim) duration = anim.duration
+        timelineEnd = duration
+        state.clearTrack(0)
+        state.clearTrack(1)
+        setSpineAnimation(p, animName, { loop: false, forceNoMix: true })
+        if (skeleton) {
+          state.apply(skeleton)
+          skeleton.updateWorldTransform()
+        }
+        resetComposite()
       }
+    }
+    if (mapping) {
+      stopOverlayRendering()
+      renderCompositeOnce()
     }
 
     const speed = p.speed || store.animationSpeed || 1
-    const totalFrames = Math.ceil((duration / speed) * fps)
+    const stepSeconds = 1 / fps
+    const stepDuration = stepSeconds * speed
+    let targetDuration = mapping ? compositeDuration || timelineEnd : timelineEnd
+    const prevCompositeDuration = compositeDuration
+    let simFrames = 0
+    const EPS = 1e-6
+
+    if (mapping) {
+      const maxSimFrames = 2000
+      while (simFrames < maxSimFrames && !compositeTracksReachedAnimEnd(p)) {
+        advanceCompositeStates(stepSeconds)
+        simFrames++
+      }
+      const simDuration = simFrames * stepDuration
+      if (simDuration > 0) {
+        targetDuration = simDuration + stepDuration
+      }
+      await startComposite(p, mapping, 0)
+      compositeDuration = targetDuration
+      compositeLastTimestamp = null
+      overlayLastTimestamp = null
+      stopOverlayRendering()
+      renderCompositeOnce()
+    }
+
+    const totalFrames = Math.max(
+      1,
+      mapping ? Math.max(1, simFrames + 1) : Math.ceil((targetDuration + EPS) / stepDuration),
+    )
     const zip = new JSZip()
-    const wasPlaying = store.playing
     p.pause()
     store.playing = false
 
     let frame = 0
+    let exportFinalized = false
     const capture = () => {
       if (cancelExport) {
         exportingFrames = false
+        exportingAnimation = false
         applyPlayerBackgroundTransparency(p)
         if (!store.useCurrentCamera) {
           cam.position.x = prevPos.x
@@ -1466,53 +2631,103 @@ function exportAnimationFrames(transparent: boolean): Promise<void> {
         return
       }
 
-      ;(p as unknown as SpinePlayerInternal).drawFrame(false)
+      if (mapping) {
+        renderCompositeOnce()
+      } else {
+        ;(p as unknown as SpinePlayerInternal).drawFrame(false)
+      }
       const url = getCompositeDataURL(canvas, transparent)
       zip.file(`frame_${String(frame).padStart(4, '0')}.png`, url.split(',')[1], { base64: true })
       frame++
-      if (frame < totalFrames) {
-        p.animationState?.update((1 / fps) * speed)
+
+      if (mapping) {
+        advanceCompositeStates(stepSeconds)
+        if (compositeElapsed > targetDuration) {
+          compositeElapsed = targetDuration
+        }
+        progress.value = compositeDuration > 0 ? Math.min(compositeElapsed / compositeDuration, 1) : 0
+      } else {
+        p.animationState?.update(stepDuration)
         p.animationState?.apply(p.skeleton!)
         p.skeleton!.updateWorldTransform()
-        requestAnimationFrame(capture)
-      } else {
-        exportingFrames = false
-        applyPlayerBackgroundTransparency(p)
-        if (!store.useCurrentCamera) {
-          cam.position.x = prevPos.x
-          cam.position.y = prevPos.y
-          cam.zoom = prevZoom
-          cam.update()
+        compositeElapsed = frame * stepDuration
+
+        const entry = p.animationState?.getCurrent(getActiveTrackIndexForSelectedAnimation(p.animationState))
+        const entryDuration = entry?.animation?.duration ?? 0
+        if (entryDuration > 0) {
+          progress.value = Math.min((entry?.trackTime ?? 0) / entryDuration, 1)
         }
-        if (animName) {
-          setSpineAnimation(p, animName, { loop: true })
+      }
+
+      const finishedTracks = mapping ? compositeTracksReachedAnimEnd(p) : compositeTracksFinished(p)
+      const shouldStop = finishedTracks || compositeElapsed >= targetDuration - EPS || frame >= totalFrames
+      if (shouldStop) {
+        if (!exportFinalized) {
+          exportFinalized = true
+          if (mapping && compositeDuration > 0) {
+            compositeElapsed = compositeDuration
+            progress.value = 1
+          }
+          finalize()
+          zip.generateAsync({ type: 'blob' })
+            .then((blob: Blob) => {
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `animation_${store.selectedCharacterId}_${animationName}_frames.zip`
+              a.click()
+              URL.revokeObjectURL(url)
+            })
+            .catch(() => {})
+            .finally(() => {
+              resolve()
+            })
         }
+        return
+      }
+
+      requestAnimationFrame(capture)
+    }
+
+    const finalize = () => {
+      exportingFrames = false
+      exportingAnimation = false
+      applyPlayerBackgroundTransparency(p)
+      if (!store.useCurrentCamera) {
+        cam.position.x = prevPos.x
+        cam.position.y = prevPos.y
+        cam.zoom = prevZoom
+        cam.update()
+      }
+      progress.value = 0
+      compositeElapsed = 0
+      if (mapping) {
+        compositeDuration = prevCompositeDuration
+        void startComposite(p, mapping, 0)
+        if (wasPlaying) {
+          p.play()
+        } else {
+          p.pause()
+        }
+      } else if (animName) {
+        setSpineAnimation(p, animName, { loop: true })
         p.animationState?.apply(p.skeleton!)
         p.skeleton!.updateWorldTransform()
         if (wasPlaying) {
           p.play()
-          store.playing = true
         } else {
           p.pause()
-          store.playing = false
         }
-        zip.generateAsync({ type: 'blob' }).then((blob: Blob) => {
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `animation_${store.selectedCharacterId}_${animationName}_frames.zip`
-          a.click()
-          URL.revokeObjectURL(url)
-          cancelExport = false
-          resolve()
-        })
       }
+      store.playing = wasPlaying
+      cancelExport = false
     }
+
     capture()
   })
 }
 
-defineExpose({ resetCamera, saveScreenshot, exportAnimation, exportAnimationFrames })
+defineExpose({ resetCamera, zoomIn, zoomOut, zoomByFactor, saveScreenshot, exportAnimation, exportAnimationFrames })
 </script>
 <style scoped>
 .seek-range {
