@@ -1357,6 +1357,13 @@ export default {
     "cutscene": "cutscene_char067803",
     "dating": ""
   },
+  "400098": {
+    "charName": "Rudina",
+    "costumeName": "???",
+    "spine": "npc400098",
+    "cutscene": "",
+    "dating": ""
+  },
   "minigame1": {
     "charName": "Minigame",
     "costumeName": "Slap Slap Pop",

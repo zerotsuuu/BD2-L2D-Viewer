@@ -149,6 +149,8 @@ type CompositeSegment = {
   additive: boolean
   source: string | null
   skin?: string
+  hold?: boolean
+  holdUntil?: number
 }
 type ResolvedCutsceneComposite = { name: string; mapping: CutsceneComposite }
 type CompositeOverlayInstance = {
@@ -548,6 +550,10 @@ function getAnimSpecSkin(spec: CutsceneAnim) {
   return typeof spec === 'string' ? undefined : spec.skin
 }
 
+function getAnimSpecHold(spec: CutsceneAnim) {
+  return typeof spec === 'string' ? false : spec.hold === true
+}
+
 function getSpineAssetRoot() {
   return import.meta.env.DEV ? 'src/assets/spines' : 'assets/spines'
 }
@@ -666,15 +672,20 @@ function buildCompositeSchedule(
   for (const segment of mapping) {
     if (Array.isArray(segment)) {
       let longest = 0
-      segment.forEach((animSpec, index) => {
+      const phaseSegments = segment.map((animSpec, index) => {
         const name = getAnimSpecName(animSpec)
         const offsetValue = getAnimSpecOffset(animSpec)
         const source = getAnimSpecSource(animSpec)
         const skin = getAnimSpecSkin(animSpec)
+        const hold = getAnimSpecHold(animSpec)
         const duration = getCompositeSegmentDuration(state, externalAssets, name, source)
         const start = phaseStart + offsetValue
-        schedule.push({ track: index, start, duration, name, additive: true, source, skin })
         if (duration + offsetValue > longest) longest = duration + offsetValue
+        return { track: index, start, duration, name, additive: true, source, skin, hold }
+      })
+      const phaseEnd = phaseStart + longest
+      phaseSegments.forEach(segment => {
+        schedule.push(segment.hold ? { ...segment, holdUntil: phaseEnd } : segment)
       })
       phaseStart += longest
     } else {
@@ -682,15 +693,22 @@ function buildCompositeSchedule(
       const offsetValue = getAnimSpecOffset(segment)
       const source = getAnimSpecSource(segment)
       const skin = getAnimSpecSkin(segment)
+      const hold = getAnimSpecHold(segment)
       const duration = getCompositeSegmentDuration(state, externalAssets, name, source)
       const start = phaseStart + offsetValue
-      schedule.push({ track: 0, start, duration, name, additive: false, source, skin })
+      schedule.push({ track: 0, start, duration, name, additive: false, source, skin, hold })
       phaseStart += Math.max(duration + offsetValue, 0)
     }
   }
 
   const duration = schedule.reduce((max, seg) => Math.max(max, seg.start + seg.duration), 0)
   return { schedule, duration }
+}
+
+function getCompositeSegmentEnd(segment: CompositeSegment, includeHold = true) {
+  return includeHold && typeof segment.holdUntil === 'number'
+    ? segment.holdUntil
+    : segment.start + segment.duration
 }
 
 async function scheduleCompositeTimeline(p: SpinePlayer, mapping: CutsceneComposite, seekToSeconds = 0) {
@@ -720,14 +738,13 @@ function applySegmentsToState(
 
   segments.sort((a, b) => a.start - b.start)
   const first = segments[0]
-  const last = segments[segments.length - 1]
-  const end = last.start + last.duration
+  const end = segments.reduce((max, segment) => Math.max(max, getCompositeSegmentEnd(segment)), 0)
   const EPS = 1e-4
   if (hideWhenOutOfRange && (time < first.start - EPS || time > end + EPS)) {
     return
   }
 
-  let currentIndex = segments.findIndex(segment => segment.start + segment.duration > time)
+  let currentIndex = segments.findIndex(segment => getCompositeSegmentEnd(segment) > time)
   if (currentIndex === -1) currentIndex = segments.length - 1
   const current = segments[currentIndex]
   if (hideWhenOutOfRange && time < current.start - EPS) {
@@ -743,7 +760,7 @@ function applySegmentsToState(
     entry.nextTrackLast = currentTime
   }
 
-  let prevEnd = current.start + current.duration
+  let prevEnd = getCompositeSegmentEnd(current)
   for (let i = currentIndex + 1; i < segments.length; i++) {
     const segment = segments[i]
     const delay = Math.max(0, segment.start - prevEnd)
@@ -752,7 +769,7 @@ function applySegmentsToState(
       nextEntry.mixDuration = 0
       nextEntry.mixTime = 0
     }
-    prevEnd = segment.start + segment.duration
+    prevEnd = getCompositeSegmentEnd(segment)
   }
 
   state.apply(skeleton)
@@ -762,8 +779,8 @@ function applySegmentsToState(
 function overlayActiveAt(segments: CompositeSegment[], time: number): boolean {
   const EPS = 1e-4
   const first = segments[0]
-  const last = segments[segments.length - 1]
-  return !(time < first.start - EPS || time > last.start + last.duration + EPS)
+  const end = segments.reduce((max, segment) => Math.max(max, getCompositeSegmentEnd(segment)), 0)
+  return !(time < first.start - EPS || time > end + EPS)
 }
 
 function createOverlayInstance(
@@ -851,8 +868,10 @@ function stopPlayerRenderLoop(p: SpinePlayer | null) {
 
 function startPlayerRenderLoop(p: SpinePlayer | null) {
   if (!p) return
-  ;(p as unknown as { stopRequestAnimationFrame?: boolean }).stopRequestAnimationFrame = false
-  ;(p as unknown as SpinePlayerInternal).drawFrame(true)
+  const internal = p as unknown as { stopRequestAnimationFrame?: boolean; drawFrame: (requestNextFrame?: boolean) => void }
+  const wasStopped = internal.stopRequestAnimationFrame === true
+  internal.stopRequestAnimationFrame = false
+  internal.drawFrame(wasStopped)
 }
 
 function getPremultipliedAlpha(p: SpinePlayer | null) {
