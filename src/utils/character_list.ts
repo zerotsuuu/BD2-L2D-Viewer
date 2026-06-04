@@ -295,6 +295,15 @@ export default {
     "cutscene": "cutscene_char000306",
     "dating": ""
   },
+  "000396": {
+    "charName": "Scheherazade",
+    "costumeName": "Deliberate Ace",
+    "spine": "char000396",
+    "cutscene": "cutscene_char000396",
+    "dating": "illust_dating18",
+    "datingHasNoBg": false,
+    "datingUsesTracks": true
+  },
   "000401": {
     "charName": "Gray",
     "costumeName": "The Sharpshooter of the Mist",
@@ -583,6 +592,13 @@ export default {
     "dating": "illust_dating1",
     "datingUsesTracks": true
   },
+  "003392": {
+    "charName": "Nebris",
+    "costumeName": "Lucky Bikini",
+    "spine": "char003392",
+    "cutscene": "",
+    "dating": ""
+  },
   "003401": {
     "charName": "Morpeah",
     "costumeName": "Beach Vacation",
@@ -721,6 +737,13 @@ export default {
     "cutscene": "cutscene_char004002",
     "dating": ""
   },
+  "004091": {
+    "charName": "Darian",
+    "costumeName": "Herald of Enlightenment",
+    "spine": "char004091",
+    "cutscene": "cutscene_char004091",
+    "dating": ""
+  },
   "004101": {
     "charName": "Tyr",
     "costumeName": "Starlight Guardian",
@@ -752,6 +775,13 @@ export default {
     "dating": "illust_dating17",
     "datingHasNoBg": false,
     "datingUsesTracks": true
+  },
+  "004301": {
+    "charName": "Nekyndalia",
+    "costumeName": "Deadeye",
+    "spine": "char004301",
+    "cutscene": "cutscene_char004301",
+    "dating": ""
   },
   "020001": {
     "charName": "Eris",
@@ -936,6 +966,13 @@ export default {
     "dating": "illust_dating5",
     "datingUsesTracks": true
   },
+  "060804": {
+    "charName": "Elise",
+    "costumeName": "Naive Lady",
+    "spine": "char060804",
+    "cutscene": "",
+    "dating": ""
+  },
   "061001": {
     "charName": "Helena",
     "costumeName": "Top Idol",
@@ -990,6 +1027,13 @@ export default {
     "costumeName": "Summer Vacation",
     "spine": "char061305",
     "cutscene": "cutscene_char061305",
+    "dating": ""
+  },
+  "061306": {
+    "charName": "Dalvi",
+    "costumeName": "Tricky Lover",
+    "spine": "char061306",
+    "cutscene": "",
     "dating": ""
   },
   "061402": {
@@ -1172,6 +1216,13 @@ export default {
     "cutscene": "cutscene_char067103",
     "dating": ""
   },
+  "067104": {
+    "charName": "Granhildr",
+    "costumeName": "Combat Medic",
+    "spine": "char067104",
+    "cutscene": "",
+    "dating": ""
+  },
   "067201": {
     "charName": "Venaka",
     "costumeName": "DJ",
@@ -1228,6 +1279,13 @@ export default {
     "cutscene": "cutscene_char067403",
     "dating": ""
   },
+  "067491": {
+    "charName": "Michaela",
+    "costumeName": "True Liberation",
+    "spine": "char067491",
+    "cutscene": "cutscene_char067491",
+    "dating": ""
+  },
   "067502": {
     "charName": "Luvencia",
     "costumeName": "Deal Snatcher",
@@ -1240,6 +1298,13 @@ export default {
     "costumeName": "Wild Dog",
     "spine": "char067503",
     "cutscene": "cutscene_char067503",
+    "dating": ""
+  },
+  "067504": {
+    "charName": "Luvencia",
+    "costumeName": "Ocean Vanguard",
+    "spine": "char067504",
+    "cutscene": "cutscene_char067504",
     "dating": ""
   },
   "067601": {
