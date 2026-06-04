@@ -12,5 +12,10 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    watch: {
+      ignored: ['**/BD2_NEWDATA/**', '**/tools/**', '**/dist/**']
+    }
+  },
   base: './'
 })
