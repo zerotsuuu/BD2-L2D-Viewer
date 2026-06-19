@@ -1,6 +1,7 @@
 <template>
   <div class="bg-gray-900 text-white h-dvh max-h-dvh flex flex-col">
     <Navbar
+      v-show="!inspectMode"
       :has-custom-background="hasCustomBackground"
       @mobile-menu="onNavMobileMenu"
       @upload-bg="onCustomBgUpload"
@@ -15,7 +16,6 @@
           :screenshotting="isScreenshotting"
           @select="onSelectAnimation"
           @reset-camera="onResetCamera"
-          @zoom-factor="onZoomFactor"
           @screenshot="onScreenshot"
           @export-animation="onExportAnimation"
           @category-change="onCategoryChange"
@@ -53,22 +53,57 @@
             <option v-for="name in animations" :key="name" :value="name">{{ name }}</option>
           </select>
         </div>
-        <div class="absolute top-14 left-4 lg:hidden z-50">
+        <div class="absolute top-17 left-4 lg:hidden z-50 flex flex-col items-start gap-2">
           <button
-            v-show="!overlayActive && store.characters.find(c => c.id === store.selectedCharacterId)?.datingHasNoBg && store.animationCategory === 'dating'"
-            @click="store.showDatingBg = !store.showDatingBg"
+            v-show="!overlayActive"
+            :aria-pressed="inspectMode"
+            aria-label="Inspect animation"
+            class="pb-2"
+            @click="onInspectModeChange(!inspectMode)"
           >
-            <BgToggleIcon :active="store.showDatingBg" />
+            <InspectAnimationIcon :active="inspectMode" />
+          </button>
+          <button
+            v-show="!overlayActive"
+            @click="store.layerSelectionEnabled = !store.layerSelectionEnabled"
+          >
+            <LayerSelectIcon :active="store.layerSelectionEnabled" />
+          </button>
+          <button
+            v-show="!overlayActive"
+            aria-label="Zoom out"
+            @click="onZoomOut"
+          >
+            <MinusIcon />
+          </button>
+          <button
+            v-show="!overlayActive"
+            aria-label="Zoom in"
+            @click="onZoomIn"
+          >
+            <PlusIcon />
           </button>
         </div>
         <SpineViewer
           ref="viewerRef"
           :mobile-overlay-active="overlayActive"
+          :inspect-mode="inspectMode"
+          @update:inspect-mode="onInspectModeChange"
           @animations="animations = $event"
           @skins="skins = $event"
         />
+        <div
+          v-if="showLayerSelectionHint"
+          class="absolute top-3 left-1/2 -translate-x-1/2 z-50 hidden lg:block pointer-events-none"
+        >
+          <div class="rounded-xl border border-gray-700 bg-gray-900/90 px-4 py-3 text-sm text-white shadow-lg shadow-black/40 backdrop-blur-sm">
+            Use <span class="font-semibold text-indigo-300">H</span> to hide the selected layer,
+            <span class="font-semibold text-indigo-300">U</span> to revert the last change, and
+            <span class="font-semibold text-indigo-300">Esc</span> to reset the state.
+          </div>
+        </div>
       </main>
-      <div class="hidden lg:flex flex-col min-h-0">
+      <div v-show="!inspectMode" class="hidden lg:flex flex-col min-h-0">
         <CharacterSidebar
           @select="onSelectCharacter"
           class="lg:w-80"
@@ -94,7 +129,6 @@
             :screenshotting="isScreenshotting"
             @select="onSelectAnimation"
             @reset-camera="onResetCamera"
-            @zoom-factor="onZoomFactor"
             @screenshot="onScreenshot"
             @export-animation="onExportAnimation"
           />
@@ -112,7 +146,7 @@ import Navbar from '@/components/Navbar.vue'
 import CharacterSidebar from '@/components/CharacterSideBar.vue'
 import AnimationSidebar from '@/components/AnimationSideBar.vue'
 import SpineViewer from '@/components/SpineViewer.vue'
-import { ref, watchEffect, computed } from 'vue'
+import { ref, watchEffect, computed, watch, onBeforeUnmount } from 'vue'
 import { useCharacterStore } from '@/stores/characterStore'
 import { buildUrl } from './utils/urlSync'
 
@@ -120,7 +154,10 @@ import CameraResetIcon from '@/components/icons/CameraResetIcon.vue';
 import MenuIcon from '@/components/icons/MenuIcon.vue';
 import PauseIcon from '@/components/icons/PauseIcon.vue';
 import PlayIcon from '@/components/icons/PlayIcon.vue';
-import BgToggleIcon from '@/components/icons/BgToggleIcon.vue';
+import InspectAnimationIcon from '@/components/icons/InspectAnimationIcon.vue';
+import LayerSelectIcon from '@/components/icons/LayerSelectIcon.vue';
+import MinusIcon from '@/components/icons/MinusIcon.vue';
+import PlusIcon from '@/components/icons/PlusIcon.vue';
 
 const store = useCharacterStore()
 
@@ -132,10 +169,13 @@ const isScreenshotting = ref(false)
 const showMobileControls = ref(false)
 const navMobileMenuOpen = ref(false)
 const navbarOverlayActive = ref(false)
+const showLayerSelectionHint = ref(false)
+const inspectMode = ref(false)
 const overlayActive = computed(
   () => showMobileControls.value || navMobileMenuOpen.value || navbarOverlayActive.value,
 )
 const hasCustomBackground = computed(() => !!store.customBackgroundImage)
+let layerSelectionHintTimeout: number | null = null
 
 function onSelectCharacter(id: string) {
   if (id === store.selectedCharacterId) return
@@ -156,8 +196,12 @@ function onResetCamera() {
   viewerRef.value?.resetCamera()
 }
 
-function onZoomFactor(factor: number) {
-  viewerRef.value?.zoomByFactor(factor)
+function onZoomIn() {
+  viewerRef.value?.zoomIn()
+}
+
+function onZoomOut() {
+  viewerRef.value?.zoomOut()
 }
 
 function onScreenshot(value: boolean) {
@@ -199,6 +243,45 @@ function onCustomBgUpload(image: string | null) {
 function onNavbarOverlayActive(active: boolean) {
   navbarOverlayActive.value = active
 }
+
+function onInspectModeChange(value: boolean) {
+  inspectMode.value = value
+  if (value) {
+    showMobileControls.value = false
+    navMobileMenuOpen.value = false
+    navbarOverlayActive.value = false
+  }
+}
+
+function clearLayerSelectionHintTimeout() {
+  if (layerSelectionHintTimeout === null) return
+  window.clearTimeout(layerSelectionHintTimeout)
+  layerSelectionHintTimeout = null
+}
+
+function isDesktopViewport() {
+  return typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
+}
+
+watch(
+  () => store.layerSelectionEnabled,
+  enabled => {
+    clearLayerSelectionHintTimeout()
+    if (!enabled || !isDesktopViewport()) {
+      showLayerSelectionHint.value = false
+      return
+    }
+    showLayerSelectionHint.value = true
+    layerSelectionHintTimeout = window.setTimeout(() => {
+      showLayerSelectionHint.value = false
+      layerSelectionHintTimeout = null
+    }, 3000)
+  },
+)
+
+onBeforeUnmount(() => {
+  clearLayerSelectionHintTimeout()
+})
 
 watchEffect(() => {
   const query = buildUrl(store)

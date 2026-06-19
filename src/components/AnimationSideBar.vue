@@ -57,17 +57,14 @@
           <label
             v-for="layer in filteredLayers"
             :key="layer.key"
-            :ref="el => { if (layer.key === store.selectedLayer) selectedLayerEl = el as HTMLElement | null }"
             class="flex items-center gap-2 py-1 px-2 rounded cursor-pointer hover:bg-gray-700"
-            :class="{ 'bg-indigo-600/50 ring-1 ring-indigo-400': layer.key === store.selectedLayer }"
-            @click.self="store.selectedLayer = layer.key"
           >
             <input
               type="checkbox"
               :checked="isLayerVisible(layer.key)"
               @change="toggleLayer(layer.key)"
             />
-            <span class="truncate" :title="layer.key" @click.self="store.selectedLayer = layer.key">{{ layer.label }}</span>
+            <span class="truncate" :title="layer.label">{{ layer.label }}</span>
           </label>
         </div>
       </template>
@@ -93,23 +90,6 @@
             class="flex-1"
           />
           <span class="w-12 text-right">{{ store.animationSpeed.toFixed(2) }}x</span>
-        </div>
-      </div>
-      <div class="p-2">
-        <span>Zoom</span>
-        <div class="flex items-center gap-2">
-          <input
-            type="range"
-            min="-1"
-            max="1"
-            step="0.01"
-            v-model.number="zoomAdjustment"
-            @input="onZoomInput"
-            @change="resetZoomAdjustment"
-            @pointerup="resetZoomAdjustment"
-            class="flex-1"
-          />
-          <span class="w-12 text-right">{{ zoomAdjustmentLabel }}</span>
         </div>
       </div>
       <div class="p-2 gap-2 hidden lg:flex">
@@ -219,7 +199,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, toRefs, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { computed, toRefs, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useCharacterStore } from '@/stores/characterStore'
 
 import LoadingIcon from '@/components/icons/LoadingIcon.vue';
@@ -235,11 +215,8 @@ const desktopExportRef = ref<HTMLElement | null>(null)
 const mobileExportRef = ref<HTMLElement | null>(null)
 const sidebarTab = ref<'controls' | 'layers'>('controls')
 const layerFilter = ref('')
-const selectedLayerEl = ref<HTMLElement | null>(null)
-const zoomAdjustment = ref(0)
-let lastZoomAdjustment = 0
 
-const emit = defineEmits(['select', 'reset-camera', 'zoom-factor', 'screenshot', 'export-animation', 'category-change'])
+const emit = defineEmits(['select', 'reset-camera', 'screenshot', 'export-animation', 'category-change'])
 
 function select(name: string) {
   emit('select', name)
@@ -258,24 +235,6 @@ function onScreenshot() {
 function onExport(format: 'video' | 'frames') {
   emit('export-animation', { format, transparent: transparentBg.value })
   showExportMenu.value = false
-}
-
-const zoomAdjustmentLabel = computed(() => {
-  if (Math.abs(zoomAdjustment.value) < 0.005) return '0'
-  return zoomAdjustment.value > 0 ? `+${zoomAdjustment.value.toFixed(2)}` : zoomAdjustment.value.toFixed(2)
-})
-
-function onZoomInput() {
-  const delta = zoomAdjustment.value - lastZoomAdjustment
-  if (Math.abs(delta) < 0.001) return
-  lastZoomAdjustment = zoomAdjustment.value
-  const factor = Math.pow(1.12, -delta * 10)
-  emit('zoom-factor', factor)
-}
-
-function resetZoomAdjustment() {
-  zoomAdjustment.value = 0
-  lastZoomAdjustment = 0
 }
 
 function handleClickOutside(e: MouseEvent) {
@@ -335,14 +294,6 @@ function isLayerVisible(name: string) {
 function toggleLayer(name: string) {
   store.layerVisibility[name] = !isLayerVisible(name)
 }
-
-watch(() => store.selectedLayer, (layerName) => {
-  if (!layerName) return
-  sidebarTab.value = 'layers'
-  nextTick(() => {
-    selectedLayerEl.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  })
-})
 
 watch(() => store.animationCategory, () => {
   emit('category-change');

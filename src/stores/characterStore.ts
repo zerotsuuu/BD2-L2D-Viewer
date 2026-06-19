@@ -9,7 +9,7 @@ export interface Character {
   spine: string
   cutscene: string
   dating: string
-  datingHasNoBg?: boolean,
+  icon: string,
   datingUsesTracks?: boolean,
   customFiles?: {
     skel?: string,
@@ -21,8 +21,8 @@ export interface Character {
 
 const characterArray: Character[] = Object.entries(character_list).map(([id, char]) => ({
   id,
-  datingHasNoBg: true,
   datingUsesTracks: false,
+  icon: id,
   ...char,
 }))
 
@@ -37,12 +37,11 @@ export const useCharacterStore = defineStore('characterStore', {
     animationSpeed: 1,
     backgroundColor: '#1f2937',
     useCurrentCamera: false,
-    showDatingBg: true,
     customBackgroundImage: null as string | null,
     layerNames: [] as string[],
     layerVisibility: {} as Record<string, boolean>,
-    layerSelectionEnabled: true as boolean,
-    selectedLayer: null as string | null,
+    layerSelectionEnabled: false as boolean,
+    selectedLayerName: null as string | null,
     hiddenLayerStack: [] as string[],
   }),
 })

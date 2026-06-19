@@ -62,12 +62,28 @@ export default {
     "cutscene": "cutscene_char101101",
     "dating": ""
   },
+  "101101_c": {
+    "charName": "Seir",
+    "costumeName": "Demon's Daughter (Censored)",
+    "spine": "char101101_c",
+    "cutscene": "",
+    "dating": "",
+    "icon": "101101"
+  },
   "101102": {
     "charName": "Seir",
     "costumeName": "B-Rank Idol",
     "spine": "char101102",
     "cutscene": "cutscene_char101102",
     "dating": ""
+  },
+  "101102_c": {
+    "charName": "Seir",
+    "costumeName": "B-Rank Idol (Censored)",
+    "spine": "char101102_c",
+    "cutscene": "",
+    "dating": "",
+    "icon": "101102"
   },
   "101103": {
     "charName": "Seir",
@@ -265,7 +281,6 @@ export default {
     "cutscene": "cutscene_char000296",
     "dating": "illust_dating7",
     "datingUsesTracks": true,
-    "datingHasNoBg": false
   },
   "000301": {
     "charName": "Scheherazade",
@@ -301,7 +316,6 @@ export default {
     "spine": "char000396",
     "cutscene": "cutscene_char000396",
     "dating": "illust_dating18",
-    "datingHasNoBg": false,
     "datingUsesTracks": true
   },
   "000401": {
@@ -346,6 +360,14 @@ export default {
     "cutscene": "cutscene_char000502",
     "dating": ""
   },
+  "000502_c": {
+    "charName": "Rou",
+    "costumeName": "Red Hat (Censored)",
+    "spine": "char000502_c",
+    "cutscene": "",
+    "dating": "",
+    "icon": "000502"
+  },
   "000504": {
     "charName": "Rou",
     "costumeName": "Nature's Claw",
@@ -387,7 +409,6 @@ export default {
     "spine": "char000706",
     "cutscene": "cutscene_char000706",
     "dating": "illust_dating11",
-    "datingHasNoBg": false,
     "datingUsesTracks": true
   },
   "000707": {
@@ -490,7 +511,6 @@ export default {
     "cutscene": "cutscene_char001197",
     "dating": "illust_dating9",
     "datingUsesTracks": true,
-    "datingHasNoBg": false
   },
   "001201": {
     "charName": "Liatris",
@@ -655,7 +675,6 @@ export default {
     "spine": "char003604",
     "cutscene": "cutscene_char003604",
     "dating": "illust_dating16",
-    "datingHasNoBg": false,
     "datingUsesTracks": true
   },
   "003701": {
@@ -707,7 +726,6 @@ export default {
     "cutscene": "cutscene_char003892",
     "dating": "illust_dating14",
     "datingUsesTracks": true,
-    "datingHasNoBg": false
   },
   "003901": {
     "charName": "Sonya",
@@ -739,7 +757,7 @@ export default {
   },
   "004091": {
     "charName": "Darian",
-    "costumeName": "Herald of Enlightenment",
+    "costumeName": "Herald of Enlightment",
     "spine": "char004091",
     "cutscene": "cutscene_char004091",
     "dating": ""
@@ -757,7 +775,6 @@ export default {
     "spine": "char004102",
     "cutscene": "cutscene_char004102",
     "dating": "illust_dating13",
-    "datingHasNoBg": false,
     "datingUsesTracks": true
   },
   "004201": {
@@ -773,7 +790,6 @@ export default {
     "spine": "char004202",
     "cutscene": "cutscene_char004202",
     "dating": "illust_dating17",
-    "datingHasNoBg": false,
     "datingUsesTracks": true
   },
   "004301": {
@@ -1056,7 +1072,6 @@ export default {
     "spine": "char061492",
     "cutscene": "cutscene_char061492",
     "dating": "illust_dating12",
-    "datingHasNoBg": false,
     "datingUsesTracks": true
   },
   "062001": {
@@ -1151,6 +1166,14 @@ export default {
     "cutscene": "cutscene_char066802",
     "dating": ""
   },
+  "066802_c": {
+    "charName": "Refithea",
+    "costumeName": "Pure White Blessing (Censored)",
+    "spine": "char066802_c",
+    "cutscene": "",
+    "dating": "",
+    "icon": "066802"
+  },
   "066803": {
     "charName": "Refithea",
     "costumeName": "Poolside Fairy",
@@ -1192,7 +1215,6 @@ export default {
     "spine": "char067004",
     "cutscene": "cutscene_char067004",
     "dating": "illust_dating15",
-    "datingHasNoBg": false,
     "datingUsesTracks": true
   },
   "067101": {
@@ -1220,8 +1242,9 @@ export default {
     "charName": "Granhildr",
     "costumeName": "Combat Medic",
     "spine": "char067104",
-    "cutscene": "",
-    "dating": ""
+    "cutscene": "cutscene_char067104",
+    "dating": "illust_dating19",
+    "datingUsesTracks": true
   },
   "067201": {
     "charName": "Venaka",
@@ -1377,6 +1400,6 @@ export default {
   spine: string,
   cutscene: string,
   dating: string,
-  datingHasNoBg?: boolean,
+  icon?: string,
   datingUsesTracks?: boolean
 } }

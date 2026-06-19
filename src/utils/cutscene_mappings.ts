@@ -99,6 +99,34 @@ const cutsceneComposites: Record<string, CutsceneCompositeEntry> = {
       ]]
     }
   ],
+  "000296": [
+    {
+      name: "cut/cut_B_all",
+      composite: [[
+        "cut/cut_B",
+        "cut/cut_B_water"
+      ]]
+    }
+  ],
+  "067104": [
+    {
+      name: "cut_A_all",
+      composite: [[
+        "cut_A_front_body",
+        "cut_A",
+        "cut_A_front_arm",
+        { name: "cut_A_curtain", hold: true }
+      ]]
+    },
+    {
+      name: "cut_A_all/no-curtain",
+      composite: [[
+        "cut_A_front_body",
+        "cut_A",
+        "cut_A_front_arm"
+      ]]
+    }
+  ]
 }
 
 export default cutsceneComposites

@@ -122,7 +122,7 @@ function process() {
         spine: '',
         cutscene: '',
         dating: '',
-        datingHasNoBg: false,
+        icon: '',
         customFiles,
       }
       store.characters.unshift(char)

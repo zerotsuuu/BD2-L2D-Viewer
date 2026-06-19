@@ -1,5 +1,76 @@
 export default [
   {
+    "date": "18/06/2026",
+    "changes": [
+      "Added Granhildr: Combat Medic ultimate and fated guest animations.",
+      "Updated Justia: Hot Summer Dream standing, ultimate and fated guest animations.",
+      "Deleted all the fated guest animations with no background because I don't plan to add more of them.",
+      "Added animation type filters for character search.",
+      "Added a functionality (the eye icon) that lets you toggle the UI to have a bigger space for the animation canvas by hidding some elements.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
+    ]
+  },
+  {
+    "date": "04/06/2026",
+    "changes": [
+      "Added Scheherazade: Deliberate Ace, Nebris: Lucky Bikini, Darian: Herald of Enlightment, Nekyndalia: Deadeye, Granhildr: Combat Medic, Michaela: True Liberation and Luvencia: Ocean Vanguard character icon.",
+      "Added Scheherazade: Deliberate Ace, Nebris: Lucky Bikini, Darian: Herald of Enlightment, Nekyndalia: Deadeye, Elise: Naive Lady, Dalvi: Tricky Lover, Rudina (NPC), Granhildr: Combat Medic, Michaela: True Liberation and Luvencia: Ocean Vanguard standing animations.",
+      "Added Scheherazade: Deliberate Ace, Darian: Herald of Enlightment, Nekyndalia: Deadeye, Michaela: True Liberation and Luvencia: Ocean Vanguard ultimates animations.",
+      "Added Scheherazade: Deliberate Ace fated guests animations.",
+      "Updated Teresse: Milky Bikini fated guest animations.",
+      "Fixed Mamonir: Miracle Marine composite 'cut_B_all' animation.",
+      "Fixed severe lag issues when watching fated guest animations after the rendering engine upgrade from the last update, in fact now it should be even smoother than before the engine upgrade.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
+    ]
+  },
+  {
+    "date": "23/05/2026",
+    "changes": [
+      "Added Mamonir: Miracle Marine ultimate animations.",
+      "Upgraded the rendering engine to support the new type of animations.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
+    ],
+  },
+  {
+    "date": "07/05/2026",
+    "changes": [
+      "Added Palette: Miracle Violet ultimate and fated guest animations.",
+      "Added layer selector feature with controls to toggle the layers on and off. Thanks omarcande for the Pull Request",
+      "Added zoom controls in case scroll wheel doesn't work properly",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
+    ]
+  },
+  {
+    "date": "23/04/2026",
+    "changes": [
+      "Added Liberta: Miracle Rose, Palette: Miracle Violet and Mamonir: Miracle Marine character icon.",
+      "Added Liberta: Miracle Rose, Palette: Miracle Violet and Mamonir: Miracle Marine standing animations.",
+      "Added Liberta: Miracle Rose ultimate animations.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
+    ]
+  },
+  {
+    "date": "09/04/2026",
+    "changes": [
+      "Added Ikaruga: Noble Flame character icon.",
+      "Added Ikaruga: Noble Flame standing animations.",
+      "Added Ikaruga: Noble Flame ultimate animations.",
+      "Updated Zenith: Stranger Bunny standing and ultimate animations.",
+      "Updated Helena: B-Rank Idol ultimate animations.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
+    ]
+  },
+  {
+    "date": "26/03/2026",
+    "changes": [
+      "Added Helena: Rising Star and Mamonir: Night of Death character icons.",
+      "Added Helena: Rising Star and Mamonir: Night of Death standing animations.",
+      "Added Helena: Rising Star and Mamonir: Night of Death ultimate animations.",
+      "Added the censored models for Seir: Demon's Daughter, Seir: B-Rank Idol, Rou: Red Hat and Refithea: Pure White Blessing.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
+    ]
+  },
+  {
     "date": "12/03/2026",
     "changes": [
       "Added Palette: Shattered Dream character icon.",
@@ -7,6 +78,7 @@ export default [
       "Added Palette: Shattered Dream ultimate animations.",
       "Added Olivier: Retired Legend fated guest animations.",
       "Updated Zenith: Stranger Bunny fated guest animations.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
     ]
   },
   {
@@ -29,6 +101,8 @@ export default [
     "date": "31/01/2026",
     "changes": [
       "Added a section to play with the model layers.",
+      "Opened a Patreon account, you can find it in the navigation bar.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by donating in either my Ko-Fi or Patreon <3."
     ]
   },
   {
@@ -38,6 +112,7 @@ export default [
       "Added Ventana: Onsen Practitioner fated guest animations.",
       "Fixed the standing animation for Sylvia: The Sword Queen.",
       "Fixed mixed3_X_4 animations in Nebris: New Hire fated guests where her face would not render (probably fixed some other fated guests with this change)",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by clicking in the coffee icon in the navigation bar."
     ]
   },
   {
@@ -49,6 +124,7 @@ export default [
       "Added Liberta: Hedonist, Granadair: Shrine Maiden of Purification and Granadair: Queen of Gluttis ultimate animations.",
       "Added Liberta: Hedonist fated guests animations.",
       "Fixed some localization issues: Anatasia -> Anastasia, Lathel: Medicinal Herb Tracker -> Lathel: Herb Tracker",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by clicking in the coffee icon in the navigation bar."
     ]
   },
   {
@@ -57,6 +133,7 @@ export default [
       "Added Tyr: Innocent Bunny ultimate animation.",
       "Added Tyr: Innocent Bunny fated guest animation.",
       "Fixed the bug of fated guest animations displaying incorrect slots.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by clicking in the coffee icon in the navigation bar."
     ]
   },
   {
@@ -67,6 +144,7 @@ export default [
       "Added Darian: Bittersweet Bunny, Eleaneer: Shadow Bunny, Zenith: Stranger Bunny, Wilhelmina: Frozen Queen, Celia: The Curse, Justia: Knight of Blood and Rafina: Steel Engine ultimate animations.",
       "Added Eclipse: Nightmare Bunny and Zenith: Stranger Bunny fated guests animations.",
       "Added badges displaying available animation categories for each character.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by clicking in the coffee icon in the navigation bar."
     ]
   },
   {
@@ -76,6 +154,7 @@ export default [
       "Added Olivier: Faithful Wings standing and ultimate animations.",
       "Renamed Olivier: White Witch ➔ Olivier: Faithful Wings.",
       "Fixed first couple of frames in animation exports starting in reverse.",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by clicking in the coffee icon in the navigation bar."
     ]
   },
   {
@@ -86,6 +165,7 @@ export default [
       "Added Granhildr: Boo Ghost and Sonya: Little Pumpkin Girl standing and ultimate animations.",
       "Added Angelica: Neon Savior fated guest animations.",
       "Added smart skin selection to select a skin with content if the default one is empty (Happens with Angelica: Neon Savior fated guest skins).",
+      "As always, if you like my work and want to support me so I can keep working on adding more features and improving the site you can do so by clicking in the coffee icon in the navigation bar."
     ]
   },
   {
@@ -100,6 +180,7 @@ export default [
     "changes": [
       "Added Tyr: Starlight Guardian character icon.",
       "Added Tyr: Starlight Guardian standing and ultimate animations.",
+      "I apologize for the delay in the update, I started school period and I only can update the website in the afternoon. If you enjoy what I do and want to help you can support me in my ko-fi page :)"
     ]
   },
   {
@@ -134,6 +215,7 @@ export default [
   {
     "date": "14/08/2025",
     "changes": [
+      "Added ko-fi page to receive donations.",
       "Added menu for phone view.",
       "Added new character icons.",
       "Added Rubia: Maid Bikini, Sylvia: Bikini Agent and Teresse: Milky Bikini standing animations.",

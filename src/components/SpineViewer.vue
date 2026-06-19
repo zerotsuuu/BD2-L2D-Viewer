@@ -2,8 +2,11 @@
   <div class="relative w-full h-full">
     <div
       ref="toolbarRef"
-      class="absolute left-2 top-16 lg:top-2 flex flex-col gap-2 pointer-events-auto transition-opacity duration-150"
-      :class="[showingMobileOverlay ? 'opacity-0 pointer-events-none' : 'opacity-100 z-40']"
+      class="absolute left-2 flex flex-col gap-2 pointer-events-auto transition-opacity duration-150"
+      :class="[
+        showingMobileOverlay ? 'opacity-0 pointer-events-none' : 'opacity-100 z-40',
+        inspectMode ? 'top-2' : 'top-16 lg:top-2',
+      ]"
     >
       <button
         ref="editToggleRef"
@@ -18,12 +21,14 @@
       </button>
       <div class="flex flex-row gap-2">
         <button
-          ref="datingToggleRef"
-          v-show="store.characters.find(c => c.id === store.selectedCharacterId)?.datingHasNoBg && store.animationCategory === 'dating'"
-          @click="store.showDatingBg = !store.showDatingBg"
+          type="button"
+          aria-label="Inspect animation"
+          :aria-pressed="inspectMode"
+          @click="emit('update:inspectMode', !inspectMode)"
           class="w-8 h-8 p-1.5 rounded-md hidden lg:flex items-center justify-center bg-gray-800/70 hover:bg-gray-700/70 text-white transition-colors"
+          :class="{ 'bg-indigo-600/90 hover:bg-indigo-500': inspectMode }"
         >
-          <BgToggleIcon :active="store.showDatingBg" />
+          <InspectAnimationIcon :active="inspectMode" />
         </button>
         <button
           @click="store.layerSelectionEnabled = !store.layerSelectionEnabled"
@@ -85,10 +90,10 @@
       <canvas ref="overlayCanvas" class="absolute inset-0 z-20 pointer-events-none"></canvas>
     </div>
     <div
-      v-if="store.selectedLayer"
+      v-if="store.selectedLayerName"
       class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-gray-900/80 text-white px-4 py-3 rounded-full z-50 pointer-events-none shadow-lg shadow-black/50 text-sm border border-gray-700 backdrop-blur-sm transition-opacity"
     >
-      Selected Layer: <span class="font-bold text-indigo-400">{{ store.selectedLayer }}</span>
+      Selected Layer: <span class="font-bold text-indigo-400">{{ store.selectedLayerName }}</span>
     </div>
     <input
       type="range"
@@ -135,7 +140,7 @@ import cutsceneComposites, {
 } from '@/utils/cutscene_mappings'
 
 import BgEditIcon from '@/components/icons/BgEditIcon.vue'
-import BgToggleIcon from '@/components/icons/BgToggleIcon.vue'
+import InspectAnimationIcon from '@/components/icons/InspectAnimationIcon.vue'
 import LayerSelectIcon from '@/components/icons/LayerSelectIcon.vue'
 import MinusIcon from '@/components/icons/MinusIcon.vue'
 import PlusIcon from '@/components/icons/PlusIcon.vue'
@@ -177,8 +182,6 @@ type SpineSlot = {
 const container = ref<HTMLDivElement | null>(null)
 const viewerWrapper = ref<HTMLDivElement | null>(null)
 const toolbarRef = ref<HTMLDivElement | null>(null)
-const editToggleRef = ref<HTMLButtonElement | null>(null)
-const datingToggleRef = ref<HTMLButtonElement | null>(null)
 const backgroundImageWrapperRef = ref<HTMLDivElement | null>(null)
 const backgroundOverlayRef = ref<HTMLDivElement | null>(null)
 const backgroundImageEl = ref<HTMLImageElement | null>(null)
@@ -187,8 +190,9 @@ const overlayCanvas = ref<HTMLCanvasElement | null>(null)
 const progress = ref(0)
 const store = useCharacterStore()
 
-const props = defineProps<{ mobileOverlayActive?: boolean }>()
+const props = defineProps<{ mobileOverlayActive?: boolean; inspectMode?: boolean }>()
 const showingMobileOverlay = computed(() => props.mobileOverlayActive ?? false)
+const inspectMode = computed(() => props.inspectMode ?? false)
 
 const selectedCharacter = computed(() => store.characters.find(c => c.id === store.selectedCharacterId) || null)
 const selectedCharacterUsesDatingTracks = computed(
@@ -446,8 +450,8 @@ function removeCompositeLayerNames() {
     previousLayerVisibility.delete(name)
   }
   store.hiddenLayerStack = store.hiddenLayerStack.filter(name => !namesToRemove.has(name))
-  if (store.selectedLayer && namesToRemove.has(store.selectedLayer)) {
-    store.selectedLayer = null
+  if (store.selectedLayerName && namesToRemove.has(store.selectedLayerName)) {
+    store.selectedLayerName = null
   }
   compositeLayerNames = new Set()
 }
@@ -1565,7 +1569,22 @@ function getCompositeDataURL(canvasElement: HTMLCanvasElement, transparent: bool
   return offscreen.toDataURL('image/png')
 }
 
-const emit = defineEmits(['animations', 'skins'])
+const emit = defineEmits(['animations', 'skins', 'update:inspectMode'])
+
+function requestViewerRedraw() {
+  requestAnimationFrame(() => {
+    if (!player) return
+    if (compositeActive && overlayInstances.length > 0) {
+      renderCompositeOnce()
+      return
+    }
+    ;(player as unknown as SpinePlayerInternal).drawFrame(false)
+    drawOverlay()
+  })
+}
+
+watch(inspectMode, requestViewerRedraw)
+
 watch(editingBackground, value => {
   if (!value) {
     stopPointerTracking()
@@ -1624,7 +1643,7 @@ async function load() {
   const ANIMATION_TYPE_BASE_PATH = {
     character: char.spine,
     ultimate: `cutscene/${char.cutscene}`,
-    dating: !store.showDatingBg && char.datingHasNoBg ? `dating_nobg/${char.dating}` : `dating/${char.dating}`,
+    dating: `dating/${char.dating}`,
   }
 
   const assetRoot = import.meta.env.DEV ? 'src/assets/spines' : 'assets/spines'
@@ -2003,21 +2022,9 @@ watch(() => store.backgroundColor, () => {
   }
 })
 
-watch(() => store.showDatingBg, () => {
-  if (recorder && recorder.state === 'recording') {
-    cancelExport = true
-    recorder.stop()
-  }
-  if (exportingFrames) {
-    cancelExport = true
-  }
-  resetComposite()
-  void load()
-})
-
 watch(() => store.layerSelectionEnabled, enabled => {
   if (!enabled) {
-    store.selectedLayer = null
+    store.selectedLayerName = null
   }
 })
 
@@ -2086,16 +2093,16 @@ function onViewerPointerDown(e: PointerEvent) {
       const worldVertices = new Float32Array(vertexCount)
       attachment.computeWorldVertices(slot as Slot, 0, vertexCount, worldVertices, 0, 2)
       if (isPointInPolygon(wx, wy, worldVertices)) {
-        if (store.selectedLayer !== slot.data.name) {
-          store.selectedLayer = slot.data.name
+        if (store.selectedLayerName !== slot.data.name) {
+          store.selectedLayerName = slot.data.name
         } else {
-          store.selectedLayer = null
+          store.selectedLayerName = null
         }
         return
       }
     }
   }
-  store.selectedLayer = null
+  store.selectedLayerName = null
 }
 
 function drawOverlay() {
@@ -2112,7 +2119,7 @@ function drawOverlay() {
   if (!ctx) return
   ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-  const selectedLayer = store.selectedLayer
+  const selectedLayer = store.selectedLayerName
   if (!selectedLayer || !store.layerSelectionEnabled) return
 
   const skeleton = player.skeleton
@@ -2161,23 +2168,23 @@ function onKeyDown(e: KeyboardEvent) {
   const key = e.key.toLowerCase()
 
   if (key === 'h') {
-    if (store.selectedLayer) {
-      store.layerVisibility[store.selectedLayer] = false
-      store.hiddenLayerStack.push(store.selectedLayer)
-      store.selectedLayer = null
+    if (store.selectedLayerName) {
+      store.layerVisibility[store.selectedLayerName] = false
+      store.hiddenLayerStack.push(store.selectedLayerName)
+      store.selectedLayerName = null
     }
   } else if (key === 'u') {
     if (store.hiddenLayerStack.length > 0) {
       const last = store.hiddenLayerStack.pop()!
       store.layerVisibility[last] = true
-      store.selectedLayer = last
+      store.selectedLayerName = last
     }
   } else if (e.key === 'Escape') {
     while (store.hiddenLayerStack.length > 0) {
       const last = store.hiddenLayerStack.pop()!
       store.layerVisibility[last] = true
     }
-    store.selectedLayer = null
+    store.selectedLayerName = null
   }
 }
 
@@ -2274,11 +2281,6 @@ function zoomIn() {
 function zoomOut() {
   if (!manualCamera) return
   setCameraZoom(manualCamera.zoom * ZOOM_STEP_FACTOR)
-}
-
-function zoomByFactor(factor: number) {
-  if (!manualCamera || !Number.isFinite(factor) || factor <= 0) return
-  setCameraZoom(manualCamera.zoom * factor)
 }
 
 function saveScreenshot(transparent: boolean) {
@@ -2746,7 +2748,7 @@ function exportAnimationFrames(transparent: boolean): Promise<void> {
   })
 }
 
-defineExpose({ resetCamera, zoomIn, zoomOut, zoomByFactor, saveScreenshot, exportAnimation, exportAnimationFrames })
+defineExpose({ resetCamera, zoomIn, zoomOut, saveScreenshot, exportAnimation, exportAnimationFrames })
 </script>
 <style scoped>
 .seek-range {
