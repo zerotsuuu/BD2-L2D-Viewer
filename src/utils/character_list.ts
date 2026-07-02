@@ -986,7 +986,7 @@ export default {
     "charName": "Elise",
     "costumeName": "Naive Lady",
     "spine": "char060804",
-    "cutscene": "",
+    "cutscene": "cutscene_char060804",
     "dating": ""
   },
   "061001": {
@@ -1384,6 +1384,20 @@ export default {
     "charName": "Rudina",
     "costumeName": "???",
     "spine": "npc400098",
+    "cutscene": "",
+    "dating": ""
+  },
+  "400100": {
+    "charName": "Rudina",
+    "costumeName": "Alternate",
+    "spine": "npc400100",
+    "cutscene": "",
+    "dating": ""
+  },
+  "400123": {
+    "charName": "Valze",
+    "costumeName": "Ace Hunter",
+    "spine": "npc400123",
     "cutscene": "",
     "dating": ""
   },
